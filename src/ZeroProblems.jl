@@ -63,6 +63,14 @@ Return the dimension of the variables contained within `u`.
 """
 function udim end
 
+"""
+    getinitial(prob)
+
+Return the initial data (solution, tangent, toolbox data, correct) used for
+initialising the continuation.
+"""
+function getinitial end
+
 #--- Variables that zero problems depend on
 
 """
@@ -114,17 +122,20 @@ udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(su
 A lightweight wrapper around a single-argument vector-valued function for
 convenience. Both in-place and not in-place functions are handled.
 """
-struct ZeroSubproblem{F} <: AbstractZeroSubproblem
+struct ZeroSubproblem{U, F} <: AbstractZeroSubproblem
     name::String
     deps::Vector{Var}
     f!::F
     fdim::Int64
+    u0::U  # initial value
+    t0::U  # initial tangent
+    correct::Bool  # whether the corrector should be applied to the initial solution
 end
 
 """
-    ZeroSubproblem(f; u0, name="zero")
+    ZeroSubproblem(f; fdim, u0, t0=nothing, correct=true, name="zero")
 """
-function ZeroSubproblem(f; fdim=0, u0, name="zero")
+function ZeroSubproblem(f; fdim=0, u0, t0=nothing, correct=true, name="zero")
     # Determine whether f is in-place or not
     if any(method.nargs == 3 for method in methods(f))
         f! = f
@@ -140,11 +151,21 @@ function ZeroSubproblem(f; fdim=0, u0, name="zero")
     end
     # Construct the continuation variables
     u = Var("u", length(u0))
-    return ZeroSubproblem(name, [u], f!, fdim)
+    # Initial tangent
+    if t0 === nothing
+        _t0 = zero(u0)
+    else
+        if length(t0) != length(u0)
+            throw(ArgumentError("Initial tangent should be the same size as the initial solution"))
+        end
+        _t0 = copy(t0)
+    end
+    return ZeroSubproblem(name, [u], f!, fdim, copy(u0), _t0, correct)
 end
 
 residual!(res, zp::ZeroSubproblem, u) = zp.f!(res, u)
 fdim(zp::ZeroSubproblem) = zp.fdim
+getinitial(zp::ZeroSubproblem) = (u=zp.u0, TS=zp.t0, data=nothing, correct=zp.correct)
 
 #--- ZeroProblem - the full problem structure
 
