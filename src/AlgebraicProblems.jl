@@ -33,24 +33,22 @@ assumes that the function output is of the same dimension as `u`.
 using NumericalContinuation
 using NumericalContinuation.AlgebraicProblems
 prob = ContinuationProblem()
-ap = AlgebraicProblem((u, p) -> u^3 - p, u0=1.0, p0=1.0)
+ap = AlgebraicProblem((u, p) -> u^3 - p, 1.5, 1)  # u0 = 1.5, p0 = 1
 push!(prob, ap)
 ```
 """
-struct AlgebraicProblem{U, P, F} <: AbstractZeroSubproblem
+struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem
     name::String
-    deps::Vector{Var}
+    deps::Vector{Var{T}}
     f!::F
-    u0::U
-    p0::P
-    correct::Bool
+    fdim::Int64
 end
 
 """
-    AlgebraicProblem(f; u0, p0, pnames=nothing, name="alg")
+    AlgebraicProblem(f, u0, p0; pnames=nothing, name="alg")
 """
-function AlgebraicProblem(f; u0, p0, pnames::Union{Vector, Tuple, Nothing}=nothing, correct=true, name="alg")
-    if (pnames !== nothing) && (length(p0) !== length(pnames))
+function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
+    if !isempty(pnames) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end
     # Determine whether f is in-place or not
@@ -59,18 +57,23 @@ function AlgebraicProblem(f; u0, p0, pnames::Union{Vector, Tuple, Nothing}=nothi
     else
         f! = (res, u, p) -> res .= f(u, p)
     end
+    T = promote_type(eltype(u0), eltype(p0))
+    U = u0 isa Vector ? Vector{T} : T
+    P = p0 isa Vector ? Vector{T} : T
     # Construct the continuation variables
-    u = Var(name*".u", length(u0))
-    p = Var(name*".p", length(p0))
+    u = Var(T, name*".u", length(u0), u0=u0)
+    p = Var(T, name*".p", length(p0), u0=p0)
     # TODO: add monitor functions for the parameters (cf. coco_add_pars)
-    AlgebraicProblem(name, [u, p], f!, copy(u0), copy(p0), correct)
+    AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0))
 end
 
-convertto(T, val) = val
-convertto(::Type{T}, val) where {T <: Number} = val[1]
+Base.eltype(::AlgebraicProblem{T}) where T = T
 
-residual!(res, ap::AlgebraicProblem{U, P}, u, p) where {U, P} = ap.f!(res, convertto(U, u), convertto(P, p))
-fdim(ap::AlgebraicProblem) = length(ap.u0)
-getinitial(ap::AlgebraicProblem) = (u=ap.u0, TS=zero(ap.u0), data=nothing, correct=ap.correct)
+_convertto(T, val) = val
+_convertto(::Type{T}, val) where {T <: Number} = val[1]
+
+residual!(res, ap::AlgebraicProblem{<: Any, <: Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
+fdim(ap::AlgebraicProblem) = ap.fdim
+getinitial(ap::AlgebraicProblem) = (data=nothing)
 
 end # module
