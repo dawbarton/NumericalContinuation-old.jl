@@ -4,16 +4,9 @@ using UnsafeArrays
 
 #--- Exports
 
-export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim
+export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim, dependencies
 
 #--- Forward definitions
-
-"""
-    nameof(u)
-
-Return the name of a variable or zero problem as a String.
-"""
-function nameof end
 
 """
     dependencies(z)
@@ -118,8 +111,17 @@ function Var(T, name::String, len::Int64; parent::Union{Var, Nothing}=nothing, o
     return Var{T}(name, len, _u0, _t0, parent, offset)
 end
 
-nameof(u::Var) = u.name
+Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
+getinitial(u::Var) = (u=u.u0, TS=u.t0)
+
+function Base.show(io::IO, u::Var{T}) where T
+    varname = nameof(u)
+    typename = nameof(T)
+    n = udim(u)
+    el = n == 1 ? "1 element" : "$n elements"
+    print(io, "Variable ($varname) with $el ($typename)")
+end
 
 #--- ZeroSubproblem
 
@@ -131,9 +133,21 @@ udim(u::Var) = u.len
 
 abstract type AbstractZeroSubproblem end
 
-nameof(subprob::AbstractZeroSubproblem) = subprob.name
+Base.nameof(subprob::AbstractZeroSubproblem) = subprob.name
 dependencies(subprob::AbstractZeroSubproblem) = subprob.deps
 udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(subprob))
+fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
+getinitial(subprob::AbstractZeroSubproblem) = (data=nothing)
+
+function Base.show(io::IO, subprob::AbstractZeroSubproblem)
+    typename = nameof(typeof(subprob))
+    probname = nameof(subprob)
+    neqn = fdim(subprob)
+    eqn = neqn == 1 ? "1 dimension" : "$neqn dimensions"
+    nvar = length(dependencies(subprob))
+    var = nvar == 1 ? "1 variable" : "$nvar variables"
+    print(io, "$typename ($probname) with $eqn and $var")
+end
 
 """
     ZeroSubproblem <: AbstractZeroSubproblem
@@ -172,8 +186,6 @@ function ZeroSubproblem(f, u0::Vector; fdim=0, t0=nothing, name="zero")
 end
 
 residual!(res, zp::ZeroSubproblem, u) = zp.f!(res, u)
-fdim(zp::ZeroSubproblem) = zp.fdim
-getinitial(zp::ZeroSubproblem) = (data=nothing)
 
 #--- ZeroProblem - the full problem structure
 
