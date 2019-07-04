@@ -6,6 +6,15 @@ using UnsafeArrays
 
 export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim, dependencies
 
+#--- Utilities
+
+promote_user(x) = x
+promote_user(x::Integer) = convert(Float64, x)
+promote_user(x::Vector{<: Integer}) = convert(Vector{Float64}, x)
+promote_user(x, y) = promote(x, y)
+promote_user(x::Integer, y::Integer) = (convert(Float64, x), convert(Float64, y))
+promote_user(x::Vector{<: Integer}, y::Vector{<: Integer}) = (convert(Vector{Float64}, x), convert(Vector{Float64}, y))
+
 #--- Forward definitions
 
 """
@@ -145,6 +154,7 @@ end
 Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
 getinitial(u::Var) = (u=u.u0, TS=u.t0)
+Base.eltype(u::Var{T}) where T = T
 
 function Base.show(io::IO, u::Var{T}) where T
     varname = nameof(u)
@@ -162,13 +172,14 @@ end
 # For more complicated subproblems (or subproblems that require access to the
 # full problem structure) you should inherit from AbstractZeroSubproblem.
 
-abstract type AbstractZeroSubproblem end
+abstract type AbstractZeroSubproblem{T} end
 
 Base.nameof(subprob::AbstractZeroSubproblem) = subprob.name
 dependencies(subprob::AbstractZeroSubproblem) = subprob.deps
 udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(subprob))
 fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
 getinitial(subprob::AbstractZeroSubproblem) = (data=nothing,)
+Base.eltype(subprob::AbstractZeroSubproblem{T}) where T = T
 
 function Base.show(io::IO, subprob::AbstractZeroSubproblem)
     typename = nameof(typeof(subprob))
@@ -186,17 +197,33 @@ end
 A lightweight wrapper around a single-argument vector-valued function for
 convenience. Both in-place and not in-place functions are handled.
 """
-struct ZeroSubproblem{T, F} <: AbstractZeroSubproblem
+struct ZeroSubproblem{T, F} <: AbstractZeroSubproblem{T}
     name::String
     deps::Vector{Var{T}}
     f!::F
     fdim::Int64
 end
 
-"""
-    ZeroSubproblem(f; fdim, u0, t0=nothing, correct=true, name="zero")
-"""
-function ZeroSubproblem(f, u0::Vector; fdim=0, t0=nothing, name="zero")
+function ZeroSubproblem(f, u0::Tuple; fdim=0, t0=nothing, name="zero")
+    # Expand t0
+    _t0 = t0 === nothing ? Iterators.repeated(nothing, length(u0)) : t0
+    # Construct continuation variables as necessary
+    deps = Vector{Var}()  # abstract type - will specialize when constructing ZeroSubproblem
+    i = 1
+    for (u, t) in zip(u0, _t0)
+        if !(u isa Var)
+            if t !== nothing
+                (_u, _t) = promote_user(u, t)
+                push!(deps, Var(eltype(_u), name*".u$i", length(_u), u0=_u, t0=_t))
+            else
+                _u = promote_user(u)
+                push!(deps, Var(eltype(_u), name*".u$i", length(_u), u0=_u))
+            end
+            i += 1
+        else
+            push!(deps, u)
+        end
+    end
     # Determine whether f is in-place or not
     if any(method.nargs == 3 for method in methods(f))
         f! = f
@@ -206,15 +233,14 @@ function ZeroSubproblem(f, u0::Vector; fdim=0, t0=nothing, name="zero")
     else
         f! = (res, u) -> res .= f(u)
         if fdim == 0
-            res = f(u0)
+            res = f((u.u0 for u in deps)...)
             fdim = length(res)
         end
     end
     # Construct the continuation variables
-    T = t0 === nothing ? eltype(u0) : promote_type(eltype(u0), eltype(t0))
-    u = Var(T, name*".u", length(u0), u0=u0, t0=t0)
-    return ZeroSubproblem(name, [u], f!, fdim)
+    return ZeroSubproblem(name, [deps...], f!, fdim)
 end
+ZeroSubproblem(f, u0; t0=nothing, kwargs...) = ZeroSubproblem(f, (u0,); t0=(t0,), kwargs...)
 
 residual!(res, zp::ZeroSubproblem, u) = zp.f!(res, u)
 

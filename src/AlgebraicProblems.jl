@@ -37,7 +37,7 @@ ap = AlgebraicProblem((u, p) -> u^3 - p, 1.5, 1)  # u0 = 1.5, p0 = 1
 push!(prob, ap)
 ```
 """
-struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem
+struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem{T}
     name::String
     deps::Vector{Var{T}}
     f!::F
@@ -58,6 +58,7 @@ function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
         f! = (res, u, p) -> res .= f(u, p)
     end
     T = promote_type(eltype(u0), eltype(p0))
+    T = T <: Integer ? Float64 : T
     U = u0 isa Vector ? Vector{T} : T
     P = p0 isa Vector ? Vector{T} : T
     # Construct the continuation variables
