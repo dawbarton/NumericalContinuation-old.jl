@@ -67,6 +67,12 @@ function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
     AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0))
 end
 
+function Base.show(io::IO, ap::AlgebraicProblem)
+    n = fdim(ap)
+    eqn = n == 1 ? "1 equation" : "$n equations"
+    write(io, "AlgebraicProblem with $eqn")
+end
+
 Base.eltype(::AlgebraicProblem{T}) where T = T
 
 _convertto(T, val) = val
