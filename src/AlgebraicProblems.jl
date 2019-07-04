@@ -73,7 +73,5 @@ _convertto(T, val) = val
 _convertto(::Type{T}, val) where {T <: Number} = val[1]
 
 residual!(res, ap::AlgebraicProblem{<: Any, <: Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
-fdim(ap::AlgebraicProblem) = ap.fdim
-getinitial(ap::AlgebraicProblem) = (data=nothing)
 
 end # module

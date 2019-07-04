@@ -21,6 +21,8 @@ function dependencies end
 A trait to determine whether the full problem structure is passed down to a
 particular subtype of AbstractZeroSubproblem. The default is false.
 
+Also see `passdata`.
+
 # Example
 
 A ZeroSubproblem containing the pseudo-arclength equation might require the
@@ -32,6 +34,25 @@ passproblem(z::Type{PseudoArclength}) = true
 ```
 """
 passproblem(z) = false
+
+"""
+    passdata(z)
+
+A trait to determine whether the function data is passed down to a particular
+subtype of AbstractZeroSubproblem. The default is false.
+
+Also see `passproblem`.
+
+# Example
+
+A ZeroSubproblem containing collocation equations might require the time
+discretization which it stores in its own data structure and so it defines
+
+```
+passdata(z::Type{Collocation}) = true
+```
+"""
+passdata(z) = false
 
 """
     residual!(res, [J], z, u, [prob])
@@ -137,7 +158,7 @@ Base.nameof(subprob::AbstractZeroSubproblem) = subprob.name
 dependencies(subprob::AbstractZeroSubproblem) = subprob.deps
 udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(subprob))
 fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
-getinitial(subprob::AbstractZeroSubproblem) = (data=nothing)
+getinitial(subprob::AbstractZeroSubproblem) = (data=nothing,)
 
 function Base.show(io::IO, subprob::AbstractZeroSubproblem)
     typename = nameof(typeof(subprob))
@@ -210,6 +231,9 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
             push!(zp.ui, last + 1:last + udim(u))
         else
             idx = findfirst(isequal(u.parent), zp.u)
+            if idx === nothing
+                throw(ArgumentError("Parent variable is not contained in the zero problem"))
+            end
             start = (u.offset < 0) ? (zp.ui[idx][end] + u.offset + 1) : (zp.ui[idx][1] + u.offset)
             push!(zp.u, u)
             push!(zp.ui, start:start + udim(u) - 1)
@@ -248,7 +272,7 @@ function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob) where T
     throw(ArgumentError("Specialize the zero problem before calling residual!"))
 end
 
-@generated function residual!(res, zp::ZeroProblem{T, D, U, Φ}, u, prob) where {T, D, U <: Tuple, Φ <: Tuple}
+@generated function residual!(res, zp::ZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
     body = quote
         # Construct views into u for each variable
         uv = ($((:(uview(u, zp.ui[$i])) for i in eachindex(U.parameters))...),)
@@ -263,8 +287,11 @@ end
         else
             expr = :(residual!(resv[$i], zp.ϕ[$i], $((:(uv[$(D[i][j])]) for j in eachindex(D[i]))...)))
         end
-        if passproblem(Φ.parameters[i])
+        if (prob !== Nothing) && passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
+        end
+        if (data !== Nothing) && passdata(ϕ.parameters[i])
+            push!(expr.args, :(data[$i]))
         end
         push!(body.args, expr)
     end
@@ -272,6 +299,20 @@ end
     push!(body.args, :res)
     # @show body
     body
+end
+
+function getinitial(zp::ZeroProblem{T}) where T
+    ndim = udim(zp)
+    u = zeros(T, ndim)
+    t = zeros(T, ndim)
+    for i in eachindex(zp.u)
+        if zp.u[i].parent === nothing
+            u[zp.ui[i]] .= zp.u[i].u0
+            t[zp.ui[i]] .= zp.u[i].t0
+        end
+    end
+    data = ((getinitial(ϕ).data for ϕ in zp.ϕ)...,)
+    return (u=u, TS=t, data=data)
 end
 
 end
