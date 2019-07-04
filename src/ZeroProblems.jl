@@ -80,10 +80,20 @@ function udim end
 """
     getinitial(prob)
 
-Return the initial data (solution, tangent, toolbox data, correct) used for
-initialising the continuation.
+Return the initial data (solution, tangent, toolbox data) used for initialising
+the continuation.
 """
 function getinitial end
+
+"""
+    specialize(prob)
+
+Return a specialized problem structure, typically a parameterized structure for
+speed. It is assumed that once `specialize` is called, no further changes to the
+problem structure are made. `specialize` should not change any of the dimensions
+of the problem (either variables or equations).
+"""
+specialize(prob) = prob
 
 #--- Variables that zero problems depend on
 
@@ -223,21 +233,45 @@ ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var}, Vector{Any}}(Vecto
 udim(zp::ZeroProblem) = isempty(zp.ui) ? 0 : maximum(maximum.(zp.ui))
 fdim(zp::ZeroProblem) = isempty(zp.ϕi) ? 0 : maximum(maximum.(zp.ϕi))
 
+function update_ui(zp::ZeroProblem, u::Var, last)
+    n = udim(u)
+    if u.parent === nothing
+        ui = (last + 1):(last + n)
+        last += n
+    else
+        idx = findfirst(isequal(u.parent), zp.u)
+        if idx === nothing
+            throw(ArgumentError("Parent variable is not contained in the zero problem"))
+        end
+        start = (u.offset < 0) ? (zp.ui[idx][end] + u.offset + 1) : (zp.ui[idx][1] + u.offset)
+        ui = start:(start + n - 1)
+    end
+    return (ui, last)
+end
+
+function update_ui!(zp::ZeroProblem)
+    last = 0
+    for i in eachindex(zp.u)
+        (ui, last) = update_ui(zp, zp.u[i], last)
+        zp.ui[i] = ui
+    end
+    return zp
+end
+
 function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
     if !(u in zp.u)
-        if u.parent === nothing
-            last = udim(zp)
-            push!(zp.u, u)
-            push!(zp.ui, last + 1:last + udim(u))
-        else
-            idx = findfirst(isequal(u.parent), zp.u)
-            if idx === nothing
-                throw(ArgumentError("Parent variable is not contained in the zero problem"))
-            end
-            start = (u.offset < 0) ? (zp.ui[idx][end] + u.offset + 1) : (zp.ui[idx][1] + u.offset)
-            push!(zp.u, u)
-            push!(zp.ui, start:start + udim(u) - 1)
-        end
+        push!(zp.u, u)
+        push!(zp.ui, 0:0)
+    end
+    return zp
+end
+
+function update_ϕi!(zp::ZeroProblem)
+    last = 0
+    for i in eachindex(zp.ϕ)
+        n = fdim(zp.ϕ[i])
+        zp.ϕi[i] = (last + 1):(last + n)
+        last += n
     end
     return zp
 end
@@ -253,15 +287,17 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem
     end
     last = fdim(zp)
     push!(zp.ϕ, subprob)
-    push!(zp.ϕi, last + 1:last + fdim(subprob))
+    push!(zp.ϕi, 0:0)
     push!(zp.ϕdeps, (depidx...,))
     return zp
 end
 
 function specialize(zp::ZeroProblem{T}) where T
+    update_ui!(zp)
+    update_ϕi!(zp)
     u = (zp.u...,)
     ui = zp.ui
-    ϕ = (zp.ϕ...,)
+    ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
     ϕi = zp.ϕi
     ϕdeps = zp.ϕdeps
     return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps)
