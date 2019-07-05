@@ -1,7 +1,8 @@
 module NumericalContinuation
 
-include("Coverings.jl")
 include("ZeroProblems.jl")
+include("Coverings.jl")
+
 include("AlgebraicProblems.jl")
 
 using .Coverings: Atlas

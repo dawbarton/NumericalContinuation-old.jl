@@ -31,6 +31,11 @@ end
     circle = ZeroSubproblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0])
     @test_throws ArgumentError plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
     plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
-    zp = ZeroProblem([circle, plane])
-
+    zp0 = ZeroProblem([circle, plane])
+    @test ZeroProblems.udim(zp0) == 3
+    @test ZeroProblems.fdim(zp0) == 2
+    zp = ZeroProblems.specialize(zp0)
+    res = zeros(2)
+    residual!(res, zp, [0.0, 0.0, 0.0])
+    @test res ≈ [-1, 0]
 end
