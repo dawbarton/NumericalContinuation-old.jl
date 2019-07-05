@@ -176,11 +176,10 @@ abstract type AbstractZeroSubproblem{T} end
 
 Base.nameof(subprob::AbstractZeroSubproblem) = subprob.name
 dependencies(subprob::AbstractZeroSubproblem) = subprob.deps
-udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(subprob))
 fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
 getinitial(subprob::AbstractZeroSubproblem) = (data=nothing,)
 Base.eltype(subprob::AbstractZeroSubproblem{T}) where T = T
-Base.getindex(subprob::AbstractZeroSubproblem, idx) = getindex(subprob.deps, idx)
+Base.getindex(subprob::AbstractZeroSubproblem, idx::Integer) = getindex(subprob.deps, idx)
 Base.getindex(subprob::AbstractZeroSubproblem, sym::Symbol) = subprob.vars[sym]
 
 function Base.show(io::IO, subprob::AbstractZeroSubproblem)
@@ -254,9 +253,11 @@ struct ZeroProblem{T, D, U, Φ}
     ϕ::Φ
     ϕi::Vector{UnitRange{Int64}}
     ϕdeps::Vector{Tuple{Vararg{Int64, N} where N}}
+    udim::Base.RefValue{Int64}
+    ϕdim::Base.RefValue{Int64}
 end
 
-ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroSubproblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroSubproblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}())
+ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroSubproblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroSubproblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}(), Ref(0), Ref(0))
 
 function ZeroProblem(subprobs::Vector{<: AbstractZeroSubproblem{T}}) where T
     zp = ZeroProblem(T)
@@ -266,8 +267,8 @@ function ZeroProblem(subprobs::Vector{<: AbstractZeroSubproblem{T}}) where T
     return zp
 end
 
-udim(zp::ZeroProblem) = isempty(zp.ui) ? 0 : maximum(maximum.(zp.ui))
-fdim(zp::ZeroProblem) = isempty(zp.ϕi) ? 0 : maximum(maximum.(zp.ϕi))
+udim(zp::ZeroProblem) = zp.udim[]
+fdim(zp::ZeroProblem) = zp.ϕdim[]
 
 function update_ui(zp::ZeroProblem, u::Var, last)
     n = udim(u)
@@ -276,9 +277,6 @@ function update_ui(zp::ZeroProblem, u::Var, last)
         last += n
     else
         idx = findfirst(isequal(u.parent), zp.u)
-        if idx === nothing
-            throw(ArgumentError("Parent variable is not contained in the zero problem"))
-        end
         start = (u.offset < 0) ? (zp.ui[idx][end] + u.offset + 1) : (zp.ui[idx][1] + u.offset)
         ui = start:(start + n - 1)
     end
@@ -291,13 +289,21 @@ function update_ui!(zp::ZeroProblem)
         (ui, last) = update_ui(zp, zp.u[i], last)
         zp.ui[i] = ui
     end
+    zp.udim[] = last
     return zp
 end
 
 function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
     if !(u in zp.u)
+        up = parent(u)
+        if (up !== nothing) && !(up in zp.u)
+            throw(ArgumentError("Parent variable is not contained in the zero problem"))
+        end
         push!(zp.u, u)
         push!(zp.ui, 0:0)
+        if up === nothing
+            zp.udim[] += udim(u)
+        end
     end
     return zp
 end
@@ -309,6 +315,7 @@ function update_ϕi!(zp::ZeroProblem)
         zp.ϕi[i] = (last + 1):(last + n)
         last += n
     end
+    zp.ϕdim[] = last
     return zp
 end
 
@@ -321,10 +328,10 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem
         push!(zp, dep)
         push!(depidx, findfirst(isequal(dep), zp.u))
     end
-    last = fdim(zp)
     push!(zp.ϕ, subprob)
     push!(zp.ϕi, 0:0)
     push!(zp.ϕdeps, (depidx...,))
+    zp.ϕdim[] += fdim(subprob)
     return zp
 end
 
@@ -336,7 +343,7 @@ function specialize(zp::ZeroProblem{T}) where T
     ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
     ϕi = zp.ϕi
     ϕdeps = zp.ϕdeps
-    return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps)
+    return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps, zp.udim, zp.ϕdim)
 end
 
 function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing) where T
@@ -378,7 +385,7 @@ function getinitial(zp::ZeroProblem{T}) where T
     u = zeros(T, ndim)
     t = zeros(T, ndim)
     for i in eachindex(zp.u)
-        if zp.u[i].parent === nothing
+        if parent(zp.u[i]) === nothing
             u[zp.ui[i]] .= zp.u[i].u0
             t[zp.ui[i]] .= zp.u[i].t0
         end
