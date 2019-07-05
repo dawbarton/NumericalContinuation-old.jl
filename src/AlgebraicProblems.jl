@@ -46,9 +46,9 @@ struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem{T}
 end
 
 """
-    AlgebraicProblem(f, u0, p0; pnames=nothing, name="alg")
+    AlgebraicProblem(f, u0, p0; pnames=nothing, name=:alg)
 """
-function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name=:alg)
+function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames::Vector=[], name=:alg)
     if !isempty(pnames) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end

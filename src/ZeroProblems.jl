@@ -123,6 +123,7 @@ mutable struct Var{T}
     offset::Int64
 end
 
+_convertvec(T, val, len) = throw(ArgumentError("Expected a number or a vector of numbers as a continuation variable"))
 _convertvec(T, val::Nothing, len) = zeros(T, len)
 _convertvec(T, val::Number, len) = T[val]
 _convertvec(T, val::Vector, len) = convert(Vector{T}, val) 
@@ -212,6 +213,9 @@ function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.re
     for (u, t) in zip(pairs(u0), t0)
         if !(u[2] isa Var)
             varname = u[1] isa Symbol ? u[1] : Symbol(:u, u[1])
+            if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
+                throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
+            end
             push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
         else
             push!(deps, u[2])

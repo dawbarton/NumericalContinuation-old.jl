@@ -29,6 +29,8 @@ end
 
 @testset "Cylinder/plane intersection" begin
     circle = ZeroSubproblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0])
+    @test_throws ArgumentError plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
     plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
-    zp = ZeroProblem()
+    zp = ZeroProblem([circle, plane])
+
 end
