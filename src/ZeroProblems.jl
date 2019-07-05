@@ -108,14 +108,14 @@ parent is specified, the name is prefixed with the parent's name.
 # Example
 
 ```
-coll = Var("coll", 20, T=Float64)  # an array of 20 Float64
-x0 = Var("x0", 1, parent=coll, offset=0)  # a single Float64 at the start of the collocation array
-x1 = Var("x1", 1, parent=coll, offset=-1)  # a single Float64 at the end of the collocation array
-x2 = Var("x2", 4, u0=[1, 2, 3, 4])  # an array of Float64 (integers are auto-promoted) with initial values
+coll = Var(:coll, 20, T=Float64)  # an array of 20 Float64
+x0 = Var(:x0, 1, parent=coll, offset=0)  # a single Float64 at the start of the collocation array
+x1 = Var(:x1, 1, parent=coll, offset=-1)  # a single Float64 at the end of the collocation array
+x2 = Var(:x2, 4, u0=[1, 2, 3, 4])  # an array of Float64 (integers are auto-promoted) with initial values
 ```
 """
 mutable struct Var{T}
-    name::String
+    name::Symbol
     len::Int64
     u0::Vector{T}
     t0::Vector{T}
@@ -127,13 +127,12 @@ _convertvec(T, val::Nothing, len) = zeros(T, len)
 _convertvec(T, val::Number, len) = T[val]
 _convertvec(T, val::Vector, len) = convert(Vector{T}, val) 
 
-function Var(name::String, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing, T=nothing)
+function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing, T=nothing)
     if parent !== nothing
         if (u0 !== nothing) || (t0 !== nothing)
             throw(ArgumentError("Cannot have both a parent and u0 and/or t0"))
         end
         T = eltype(parent)
-        name = nameof(parent)*"."*name
     else
         if T === nothing
             if u0 === nothing
@@ -154,6 +153,7 @@ Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
 getinitial(u::Var) = (u=u.u0, TS=u.t0)
 Base.eltype(u::Var{T}) where T = T
+Base.parent(u::Var) = u.parent
 
 function Base.show(io::IO, u::Var{T}) where T
     varname = nameof(u)
@@ -179,6 +179,8 @@ udim(subprob::AbstractZeroSubproblem) = sum(udim(dep) for dep in dependencies(su
 fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
 getinitial(subprob::AbstractZeroSubproblem) = (data=nothing,)
 Base.eltype(subprob::AbstractZeroSubproblem{T}) where T = T
+Base.getindex(subprob::AbstractZeroSubproblem, idx) = getindex(subprob.deps, idx)
+Base.getindex(subprob::AbstractZeroSubproblem, sym::Symbol) = subprob.vars[sym]
 
 function Base.show(io::IO, subprob::AbstractZeroSubproblem)
     typename = nameof(typeof(subprob))
@@ -197,22 +199,28 @@ A lightweight wrapper around a single-argument vector-valued function for
 convenience. Both in-place and not in-place functions are handled.
 """
 struct ZeroSubproblem{T, F} <: AbstractZeroSubproblem{T}
-    name::String
+    name::Symbol
     deps::Vector{Var{T}}
     f!::F
     fdim::Int64
+    vars::Dict{Symbol, Var{T}}
 end
 
-function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name="zero", inplace=false)
+function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when constructing ZeroSubproblem
     for (u, t) in zip(pairs(u0), t0)
         if !(u[2] isa Var)
-            varname = u[1] isa Integer ? "$name.u$(u[1])" : "$name.$(u[1])"
+            varname = u[1] isa Symbol ? u[1] : Symbol(:u, u[1])
             push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
         else
             push!(deps, u[2])
         end
+    end
+    T = eltype(first(deps))
+    vars = Dict{Symbol, Var{T}}()
+    for dep in deps
+        vars[nameof(dep)] = dep
     end
     # Determine whether f is in-place or not
     if inplace
@@ -228,13 +236,11 @@ function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.re
         end
     end
     # Construct the continuation variables
-    return ZeroSubproblem(name, [deps...], f!, fdim)
+    return ZeroSubproblem(name, [deps...], f!, fdim, vars)
 end
 ZeroSubproblem(f, u0; t0=nothing, kwargs...) = ZeroSubproblem(f, (u0,); t0=(t0,), kwargs...)
 
 residual!(res, zp::ZeroSubproblem, u...) = zp.f!(res, u...)
-
-Base.getindex(zp::ZeroSubproblem, idx) = getindex(zp.deps, idx)
 
 #--- ZeroProblem - the full problem structure
 

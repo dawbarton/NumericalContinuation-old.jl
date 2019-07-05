@@ -38,16 +38,17 @@ push!(prob, ap)
 ```
 """
 struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem{T}
-    name::String
+    name::Symbol
     deps::Vector{Var{T}}
     f!::F
     fdim::Int64
+    vars::Dict{Symbol, Var{T}}
 end
 
 """
     AlgebraicProblem(f, u0, p0; pnames=nothing, name="alg")
 """
-function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
+function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name=:alg)
     if !isempty(pnames) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end
@@ -58,14 +59,14 @@ function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
         f! = (res, u, p) -> res .= f(u, p)
     end
     # Construct the continuation variables
-    u = Var(name*".u", length(u0), u0=u0)
-    p = Var(name*".p", length(p0), u0=p0)
+    u = Var(:u, length(u0), u0=u0)
+    p = Var(:p, length(p0), u0=p0)
     # Helpers
     T = eltype(u)
     U = u0 isa Vector ? Vector{T} : T
     P = p0 isa Vector ? Vector{T} : T
     # TODO: add monitor functions for the parameters (cf. coco_add_pars)
-    AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0))
+    AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0), Dict(:u=>u, :p=>p))
 end
 
 _convertto(T, val) = val
