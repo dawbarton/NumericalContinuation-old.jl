@@ -57,18 +57,16 @@ function AlgebraicProblem(f, u0, p0; pnames::Vector=[], name="alg")
     else
         f! = (res, u, p) -> res .= f(u, p)
     end
-    T = promote_type(eltype(u0), eltype(p0))
-    T = T <: Integer ? Float64 : T
+    # Construct the continuation variables
+    u = Var(name*".u", length(u0), u0=u0)
+    p = Var(name*".p", length(p0), u0=p0)
+    # Helpers
+    T = eltype(u)
     U = u0 isa Vector ? Vector{T} : T
     P = p0 isa Vector ? Vector{T} : T
-    # Construct the continuation variables
-    u = Var(T, name*".u", length(u0), u0=u0)
-    p = Var(T, name*".p", length(p0), u0=p0)
     # TODO: add monitor functions for the parameters (cf. coco_add_pars)
     AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0))
 end
-
-Base.eltype(::AlgebraicProblem{T}) where T = T
 
 _convertto(T, val) = val
 _convertto(::Type{T}, val) where {T <: Number} = val[1]

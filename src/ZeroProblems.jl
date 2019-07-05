@@ -6,15 +6,6 @@ using UnsafeArrays
 
 export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim, dependencies
 
-#--- Utilities
-
-promote_user(x) = x
-promote_user(x::Integer) = convert(Float64, x)
-promote_user(x::Vector{<: Integer}) = convert(Vector{Float64}, x)
-promote_user(x, y) = promote(x, y)
-promote_user(x::Integer, y::Integer) = (convert(Float64, x), convert(Float64, y))
-promote_user(x::Vector{<: Integer}, y::Vector{<: Integer}) = (convert(Vector{Float64}, x), convert(Vector{Float64}, y))
-
 #--- Forward definitions
 
 """
@@ -110,17 +101,17 @@ specialize(prob) = prob
     Var
 
 A placeholder for a continuation variable. As a minimum it comprises a name
-and length (in units of the underlying numerical type). Optionally it can
-include a parent variable and offset into the parent variable (negative
-offsets represent the offset from the end). If a parent is specified, the name
-is prefixed with the parent's name.
+and length. Optionally it can include a parent variable and offset into the
+parent variable (negative offsets represent the offset from the end). If a
+parent is specified, the name is prefixed with the parent's name.
 
 # Example
 
 ```
-coll = Var(Float64, "coll", 20)  # an array of 20 Float64
-x0 = Var(Float64, "x0", 1, coll, 0)  # a single Float64 at the start of the collocation array
-x1 = Var(Float64, "x1", 1, coll, -1)  # a single Float64 at the end of the collocation array
+coll = Var("coll", 20, T=Float64)  # an array of 20 Float64
+x0 = Var("x0", 1, parent=coll, offset=0)  # a single Float64 at the start of the collocation array
+x1 = Var("x1", 1, parent=coll, offset=-1)  # a single Float64 at the end of the collocation array
+x2 = Var("x2", 4, u0=[1, 2, 3, 4])  # an array of Float64 (integers are auto-promoted) with initial values
 ```
 """
 mutable struct Var{T}
@@ -136,12 +127,20 @@ _convertvec(T, val::Nothing, len) = zeros(T, len)
 _convertvec(T, val::Number, len) = T[val]
 _convertvec(T, val::Vector, len) = convert(Vector{T}, val) 
 
-function Var(T, name::String, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing)
+function Var(name::String, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing, T=nothing)
     if parent !== nothing
         if (u0 !== nothing) || (t0 !== nothing)
             throw(ArgumentError("Cannot have both a parent and u0 and/or t0"))
         end
+        T = eltype(parent)
         name = nameof(parent)*"."*name
+    else
+        if T === nothing
+            if u0 === nothing
+                throw(ArgumentError("Either T or u0 must be specified"))
+            end
+            T = eltype(u0) <: Integer ? Float64 : eltype(u0)  # type promotion of integers since they don't make sense as continuation variables
+        end
     end
     _u0 = _convertvec(T, u0, len)
     _t0 = _convertvec(T, t0, len)
@@ -204,34 +203,25 @@ struct ZeroSubproblem{T, F} <: AbstractZeroSubproblem{T}
     fdim::Int64
 end
 
-function ZeroSubproblem(f, u0::Tuple; fdim=0, t0=nothing, name="zero")
-    # Expand t0
-    _t0 = t0 === nothing ? Iterators.repeated(nothing, length(u0)) : t0
+function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name="zero", inplace=false)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when constructing ZeroSubproblem
-    i = 1
-    for (u, t) in zip(u0, _t0)
-        if !(u isa Var)
-            if t !== nothing
-                (_u, _t) = promote_user(u, t)
-                push!(deps, Var(eltype(_u), name*".u$i", length(_u), u0=_u, t0=_t))
-            else
-                _u = promote_user(u)
-                push!(deps, Var(eltype(_u), name*".u$i", length(_u), u0=_u))
-            end
-            i += 1
+    for (u, t) in zip(pairs(u0), t0)
+        if !(u[2] isa Var)
+            varname = u[1] isa Integer ? "$name.u$(u[1])" : "$name.$(u[1])"
+            push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
         else
-            push!(deps, u)
+            push!(deps, u[2])
         end
     end
     # Determine whether f is in-place or not
-    if any(method.nargs == 3 for method in methods(f))
+    if inplace
         f! = f
         if fdim == 0
             throw(ArgumentError("For in-place functions the number of dimensions (fdim) must be specified"))
         end
     else
-        f! = (res, u) -> res .= f(u)
+        f! = (res, u...) -> res .= f(u...)
         if fdim == 0
             res = f((u.u0 for u in deps)...)
             fdim = length(res)
@@ -242,7 +232,9 @@ function ZeroSubproblem(f, u0::Tuple; fdim=0, t0=nothing, name="zero")
 end
 ZeroSubproblem(f, u0; t0=nothing, kwargs...) = ZeroSubproblem(f, (u0,); t0=(t0,), kwargs...)
 
-residual!(res, zp::ZeroSubproblem, u) = zp.f!(res, u)
+residual!(res, zp::ZeroSubproblem, u...) = zp.f!(res, u...)
+
+Base.getindex(zp::ZeroSubproblem, idx) = getindex(zp.deps, idx)
 
 #--- ZeroProblem - the full problem structure
 
@@ -254,7 +246,15 @@ struct ZeroProblem{T, D, U, Φ}
     ϕdeps::Vector{Tuple{Vararg{Int64, N} where N}}
 end
 
-ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var}, Vector{Any}}(Vector{Var}(), Vector{UnitRange{Int64}}(), Vector{Any}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}())
+ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroSubproblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroSubproblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}())
+
+function ZeroProblem(subprobs::Vector{<: AbstractZeroSubproblem{T}}) where T
+    zp = ZeroProblem(T)
+    for subprob in subprobs
+        push!(zp, subprob)
+    end
+    return zp
+end
 
 udim(zp::ZeroProblem) = isempty(zp.ui) ? 0 : maximum(maximum.(zp.ui))
 fdim(zp::ZeroProblem) = isempty(zp.ϕi) ? 0 : maximum(maximum.(zp.ϕi))
@@ -329,7 +329,7 @@ function specialize(zp::ZeroProblem{T}) where T
     return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps)
 end
 
-function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob) where T
+function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing) where T
     # TODO: implement anyway?
     throw(ArgumentError("Specialize the zero problem before calling residual!"))
 end
