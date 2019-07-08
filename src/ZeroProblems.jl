@@ -248,7 +248,7 @@ struct ZeroProblem{T, D, U, Φ}
     ϕdim::Base.RefValue{Int64}
 end
 
-ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroSubproblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroSubproblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}(), Ref(0), Ref(0))
+ZeroProblem(T=Float64) = ZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroSubproblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroSubproblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}(), Ref(zero(Int64)), Ref(zero(Int64)))
 
 function ZeroProblem(subprobs::Vector{<: AbstractZeroSubproblem{T}}) where T
     zp = ZeroProblem(T)
