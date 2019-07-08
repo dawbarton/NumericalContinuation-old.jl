@@ -1,6 +1,7 @@
 module ZeroProblems
 
 using UnsafeArrays
+using ..NumericalContinuation: AbstractContinuationProblem, getzeroproblem
 import ..NumericalContinuation: specialize
 
 #--- Exports
@@ -354,7 +355,7 @@ function update_ui!(zp::ZeroProblem)
     return zp
 end
 
-function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
+function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var{T}) where T
     if !(u in zp.u)
         up = parent(u)
         if (up !== nothing) && !(up in zp.u)
@@ -368,6 +369,8 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
     return zp
 end
 
+Base.push!(prob::AbstractContinuationProblem{T}, u::Var{T}) where T = push!(getzeroproblem(prob), u)
+
 function update_ϕi!(zp::ZeroProblem)
     last = 0
     for i in eachindex(zp.ϕ)
@@ -379,7 +382,7 @@ function update_ϕi!(zp::ZeroProblem)
     return zp
 end
 
-function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem) where T
+function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem{T}) where T
     if subprob in zp.ϕ
         throw(ArgumentError("Subproblem is already part of the zero problem"))
     end
@@ -396,6 +399,8 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem
     push!(zp.ϕdeps, (depidx...,))
     return zp
 end
+
+Base.push!(prob::AbstractContinuationProblem{T}, subprob::AbstractZeroSubproblem{T}) where T = push!(getzeroproblem(prob), subprob)
 
 function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
     uv = [uview(u, zp.ui[i]) for i in eachindex(zp.ui)]
