@@ -1,6 +1,7 @@
 module ZeroProblems
 
 using UnsafeArrays
+import ..NumericalContinuation: specialize
 
 #--- Exports
 
@@ -257,6 +258,15 @@ function ZeroProblem(subprobs::Vector{<: AbstractZeroSubproblem{T}}) where T
     return zp
 end
 
+function specialize(zp::ZeroProblem{T}) where T
+    u = (zp.u...,)
+    ui = zp.ui
+    ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
+    ϕi = zp.ϕi
+    ϕdeps = zp.ϕdeps
+    return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps, zp.udim, zp.ϕdim)
+end
+
 udim(zp::ZeroProblem) = zp.udim[]
 fdim(zp::ZeroProblem) = zp.ϕdim[]
 
@@ -290,10 +300,9 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, u::Var) where T
             throw(ArgumentError("Parent variable is not contained in the zero problem"))
         end
         push!(zp.u, u)
-        push!(zp.ui, 0:0)
-        if up === nothing
-            zp.udim[] += udim(u)
-        end
+        (ui, last) = update_ui(zp, u, zp.udim[])
+        push!(zp.ui, ui)
+        zp.udim[] = last
     end
     return zp
 end
@@ -319,42 +328,49 @@ function Base.push!(zp::ZeroProblem{T, Nothing}, subprob::AbstractZeroSubproblem
         push!(depidx, findfirst(isequal(dep), zp.u))
     end
     push!(zp.ϕ, subprob)
-    push!(zp.ϕi, 0:0)
+    last = zp.ϕdim[]
+    ϕdim = fdim(subprob)
+    push!(zp.ϕi, (last + 1):(last + ϕdim))
+    zp.ϕdim[] = last + ϕdim
     push!(zp.ϕdeps, (depidx...,))
-    zp.ϕdim[] += fdim(subprob)
     return zp
 end
 
-function specialize(zp::ZeroProblem{T}) where T
-    update_ui!(zp)
-    update_ϕi!(zp)
-    u = (zp.u...,)
-    ui = zp.ui
-    ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
-    ϕi = zp.ϕi
-    ϕdeps = zp.ϕdeps
-    return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps, zp.udim, zp.ϕdim)
-end
-
-function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing) where T
-    # TODO: implement anyway?
-    throw(ArgumentError("Specialize the zero problem before calling residual!"))
+function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
+    uv = [uview(u, zp.ui[i]) for i in eachindex(zp.ui)]
+    for i in eachindex(zp.ϕ)
+        args = Any[uview(res, zp.ϕi[i]), zp.ϕ[i]]
+        if length(zp.ϕdeps[i]) == 0
+            # No dependencies means pass everything
+            push!(args, u)
+        else
+            for dep in zp.ϕdeps[i]
+                push!(args, uv[dep])
+            end
+        end
+        if (prob !== nothing) && passproblem(zp.ϕ[i])
+            push!(args, prob)
+        end
+        if (data !== nothing) && passdata(zp.ϕ[i])
+            push!(args, data[i])
+        end
+        residual!(args...)
+    end
+    return res
 end
 
 @generated function residual!(res, zp::ZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
     body = quote
         # Construct views into u for each variable
         uv = ($((:(uview(u, zp.ui[$i])) for i in eachindex(U.parameters))...),)
-        # Construct views into res for each subproblem
-        resv = ($((:(uview(res, zp.ϕi[$i])) for i in eachindex(Φ.parameters))...),)
     end
     # Call each of the subproblems
     for i in eachindex(D)
         if length(D[i]) == 0
             # No dependencies means pass everything
-            expr = :(residual!(resv[$i], zp.ϕ[$i], u))
+            expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i], u))
         else
-            expr = :(residual!(resv[$i], zp.ϕ[$i], $((:(uv[$(D[i][j])]) for j in eachindex(D[i]))...)))
+            expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i], $((:(uv[$(D[i][j])]) for j in eachindex(D[i]))...)))
         end
         if (prob !== Nothing) && passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
