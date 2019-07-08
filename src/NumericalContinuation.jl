@@ -17,6 +17,13 @@ function specialize end
 
 specialize(prob) = prob  # default fall-back
 
+"""
+    setoptions!(prob, options::Dict{Symbol, Any})
+
+Set user defined options within the problem structure.
+"""
+function setoptions! end
+
 #-------------------------------------------------------------------------------
 
 include("ZeroProblems.jl")
