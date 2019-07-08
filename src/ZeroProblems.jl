@@ -267,8 +267,69 @@ function specialize(zp::ZeroProblem{T}) where T
     return ZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps, zp.udim, zp.ϕdim)
 end
 
+"""
+    udim(prob)
+
+Return the number of independent continuation variables in the problem. (May
+change during continuation, for example if adaptive meshing is used.)
+"""
 udim(zp::ZeroProblem) = zp.udim[]
+
+"""
+    fdim(prob)
+
+Return the number of equations in the problem. (May change during continuation,
+for example if adaptive meshing is used.)
+"""
 fdim(zp::ZeroProblem) = zp.ϕdim[]
+
+"""
+    uidx(prob, u::Var)
+
+Return the index of the continuation variable within the internal structures.
+This will not change during continuation and so can be stored for fast
+indexing throughout the continuation run.
+
+# Example
+
+```
+ui = uidx(prob, myvariable)  # once at the start of the continuation run (slow)
+u[uidx(prob, ui)]  # as frequently as necessary (fast)
+```
+"""
+uidx(zp::ZeroProblem, u::Var) = findfirst(isequal(u), zp.u)
+
+"""
+    uidx(prob, i::Integer)
+
+Return the index of the continuation variable within the solution vector. (May
+change during continuation, for example if adaptive meshing is used.)
+"""
+uidx(zp::ZeroProblem, i::Integer) = zp.ui[i]
+
+"""
+    fidx(prob, subprob::AbstractZeroSubproblem)
+
+Return the index of the sub-problem within the internal structures. This will
+not change during continuation and so can be stored for fast indexing
+throughout the continuation run.
+
+# Example
+
+```
+fi = fidx(prob, myproblem)  # once at the start of the continuation run (slow)
+res[fidx(prob, fi)]  # as frequently as necessary (fast)
+```
+"""
+fidx(zp::ZeroProblem, subprob::AbstractZeroSubproblem) = findfirst(isequal(subprob), zp.ϕ)
+
+"""
+    fidx(prob, i::Integer)
+
+Return the index of the sub-problem within the residual vector. (May change
+during continuation, for example if adaptive meshing is used.)
+"""
+fidx(zp::ZeroProblem, i::Integer) = zp.ϕi[i]
 
 function update_ui(zp::ZeroProblem, u::Var, last)
     n = udim(u)
