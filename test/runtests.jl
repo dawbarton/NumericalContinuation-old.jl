@@ -34,7 +34,7 @@ end
     zp0 = ZeroProblem([circle, plane])
     @test ZeroProblems.udim(zp0) == 3
     @test ZeroProblems.fdim(zp0) == 2
-    zp = ZeroProblems.specialize(zp0)
+    zp = NumericalContinuation.specialize(zp0)
     res = zeros(2)
     residual!(res, zp, [0.0, 0.0, 0.0])
     @test res ≈ [-1, 0]

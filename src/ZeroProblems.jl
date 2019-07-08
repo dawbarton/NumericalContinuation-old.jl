@@ -85,16 +85,6 @@ the continuation.
 """
 function getinitial end
 
-"""
-    specialize(prob)
-
-Return a specialized problem structure, typically a parameterized structure for
-speed. It is assumed that once `specialize` is called, no further changes to the
-problem structure are made. `specialize` should not change any of the dimensions
-of the problem (either variables or equations).
-"""
-specialize(prob) = prob
-
 #--- Variables that zero problems depend on
 
 """
