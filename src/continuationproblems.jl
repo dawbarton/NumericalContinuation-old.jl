@@ -43,5 +43,5 @@ end
 function specialize(prob::ContinuationProblem{T}) where T
     atlas = specialize(prob.atlas)
     zeroproblem = specialize(prob.zeroproblem)
-    return ContinuationProblem{T}(prob.options, atlas, zeroproblem)
+    return ContinuationProblem{T, typeof(atlas), typeof(zeroproblem)}(prob.options, atlas, zeroproblem)
 end

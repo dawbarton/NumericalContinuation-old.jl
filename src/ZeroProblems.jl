@@ -8,7 +8,8 @@ using ForwardDiff
 
 #--- Exports
 
-export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim, dependencies
+export ZeroProblem, ZeroSubproblem, Var
+export residual!, fdim, udim, fidx, uidx, dependencies
 
 #--- Forward definitions
 
@@ -277,6 +278,7 @@ Return the number of independent continuation variables in the problem. (May
 change during continuation, for example if adaptive meshing is used.)
 """
 udim(zp::ZeroProblem) = zp.udim[]
+udim(prob::AbstractContinuationProblem) = udim(getzeroproblem(prob))
 
 """
     fdim(prob)
@@ -285,6 +287,7 @@ Return the number of equations in the problem. (May change during continuation,
 for example if adaptive meshing is used.)
 """
 fdim(zp::ZeroProblem) = zp.ϕdim[]
+fdim(prob::AbstractContinuationProblem) = fdim(getzeroproblem(prob))
 
 """
     uidx(prob, u::Var)
@@ -301,6 +304,7 @@ u[uidx(prob, ui)]  # as frequently as necessary (fast)
 ```
 """
 uidx(zp::ZeroProblem, u::Var) = findfirst(isequal(u), zp.u)
+uidx(prob::AbstractContinuationProblem, x) = uidx(getzeroproblem(prob), x)
 
 """
     uidx(prob, i::Integer)
@@ -325,6 +329,7 @@ res[fidx(prob, fi)]  # as frequently as necessary (fast)
 ```
 """
 fidx(zp::ZeroProblem, subprob::AbstractZeroSubproblem) = findfirst(isequal(subprob), zp.ϕ)
+fidx(prob::AbstractContinuationProblem, x) = fidx(getzeroproblem(prob), x)
 
 """
     fidx(prob, i::Integer)
@@ -453,6 +458,8 @@ end
     # @show body
     body
 end
+
+residual!(res, prob::AbstractContinuationProblem, u, args...) = residual!(res, getzeroproblem(prob), u, args...)
 
 function jacobian!(J, zp::ZeroProblem{T}, u, args...) where T
     # A simple forward difference

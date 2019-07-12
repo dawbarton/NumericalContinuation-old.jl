@@ -45,10 +45,11 @@ Base.@kwdef mutable struct Chart{T, D}
     TS::Vector{T}
     s::Int64 = 1
     R::T
-    data::D = nothing
+    data::D = ()
 end
 Chart(T::DataType) = Chart{T, Any}(u=Vector{T}(), TS=Vector{T}(), R=zero(T))
 
+# specialize(chart::Chart) = chart
 specialize(chart::Chart) = Chart(pt=chart.pt, pt_type=chart.pt_type, ep_flag=chart.ep_flag, 
     status=chart.status, u=chart.u, TS=chart.TS, s=chart.s, R=chart.R, data=(chart.data...,)) 
 
@@ -91,12 +92,12 @@ function Atlas(T::DataType)
 end
 
 function specialize(atlas::Atlas)
-    # Specialize based on the currentchart
+    # Specialize based on the current chart
     currentchart = specialize(atlas.currentchart)
     C = typeof(currentchart)
     charts = convert(Vector{C}, atlas.charts)
     currentcurve = convert(Vector{C}, atlas.currentcurve)
-    return Atlas(charts, currentchart, atlas.prcond, currentcurve, atlas.options)
+    return Atlas(charts, currentchart, atlas.prcond, atlas.prcondidx, currentcurve, atlas.options)
 end
 
 function setuseroptions!(atlas::Atlas, options::Dict)

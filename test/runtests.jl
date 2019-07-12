@@ -31,19 +31,18 @@ end
     circle = ZeroSubproblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0])
     @test_throws ArgumentError plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
     plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
-    zp0 = ZeroProblem([circle, plane])
-    @test ZeroProblems.udim(zp0) == 3
-    @test ZeroProblems.fdim(zp0) == 2
+    prob = ContinuationProblem()
+    push!(prob, circle)
+    push!(prob, plane)
+    @test udim(prob) == 3
+    @test fdim(prob) == 2
     res0 = zeros(2)
-    residual!(res0, zp0, [0.1, 0.2, 0.3])
+    residual!(res0, prob, [0.1, 0.2, 0.3])
     @test res0 ≈ [-0.95, 0.6]
-    zp = NumericalContinuation.specialize(zp0)
+    probz = NumericalContinuation.specialize(prob)
     res = zeros(2)
-    residual!(res, zp, [0.1, 0.2, 0.3])
+    residual!(res, probz, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
-    @show ZeroProblems.jacobian_ad(zp, [0.1, 0.2, 0.3])
-    J = zeros(3, 3)
-    @show ZeroProblems.jacobian!(J, zp, [0.1, 0.2, 0.3])
     # prob = NumericalContinuation.ContinuationProblem()
     # push!(prob, circle)
     # push!(prob, plane)
