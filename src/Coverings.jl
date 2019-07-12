@@ -7,10 +7,13 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: AbstractZeroSubproblem, getinitial, fidx, udim, fdim
-using ..NumericalContinuation: getoption, getzeroproblem
+using ..ZeroProblems: AbstractZeroSubproblem, getinitial, fidx, udim, fdim,
+    jacobian_ad
+using ..NumericalContinuation: getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!
 import ..NumericalContinuation: specialize, setuseroptions!
+
+using NLsolve
 
 export Atlas, Chart
 
@@ -114,17 +117,17 @@ end
 
 #-------------------------------------------------------------------------------
 
-function runstatemachine(prob)
+function runstatemachine!(prob)
     state = init_covering!(getatlas(prob), prob)
     if getoption(prob, :general, :specialize, default=true)
         _prob = specialize(prob)
     else
         _prob = prob
     end
-    return _runstatemachine(getatlas(_prob), _prob, state)
+    return _runstatemachine!(getatlas(_prob), _prob, state)
 end
 
-@noinline function _runstatemachine(atlas::Atlas, prob, state)  # a function barrier
+@noinline function _runstatemachine!(atlas::Atlas, prob, state)  # a function barrier
     while state !== nothing
         state = state(atlas, prob)
     end 
@@ -244,9 +247,9 @@ function addchart!(atlas::Atlas{T}, prob) where T
         chart.pt_type = :EP
         chart.ep_flag = true
     end
-    dfdu = ZeroProblems.jacobian_ad(zp, chart.u, prob, chart.data)
+    dfdu = jacobian_ad(zp, chart.u, prob, chart.data)
     dfdp = zeros(T, length(chart.u))
-    dfdp[fidx(atlas.prcondidx)] = one(T)
+    dfdp[fidx(zp, atlas.prcondidx)] .= one(T)
     chart.TS .= dfdu \ dfdp
     # TODO: check for the angle
     push!(atlas.currentcurve, chart)
@@ -358,8 +361,8 @@ function predict!(atlas::Atlas, prob)
     predicted.status = :predicted
     atlas.currentchart = predicted
     # Update the projection condition
-    prcond.u .= predicted.u
-    prcond.TS .= predicted.TS
+    atlas.prcond.u .= predicted.u
+    atlas.prcond.TS .= predicted.TS
     return correct!
 end
 

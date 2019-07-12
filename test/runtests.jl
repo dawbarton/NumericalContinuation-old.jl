@@ -2,6 +2,7 @@ using Test
 
 using NumericalContinuation
 using NumericalContinuation.ZeroProblems
+using NumericalContinuation.Coverings
 using NumericalContinuation.AlgebraicProblems
 
 @testset "ZeroSubproblem specification (cubic)" begin
@@ -43,5 +44,5 @@ end
     res = zeros(2)
     residual!(res, probz, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
-    NumericalContinuation.Coverings.init_covering!(prob.atlas, prob)
+    prob1 = Coverings.runstatemachine!(prob)
 end
