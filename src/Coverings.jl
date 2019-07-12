@@ -13,6 +13,8 @@ using ..NumericalContinuation: getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!
 import ..NumericalContinuation: specialize, setuseroptions!
 
+using LinearAlgebra
+
 using NLsolve
 
 export Atlas, Chart
@@ -45,16 +47,17 @@ Base.@kwdef mutable struct Chart{T, D <: Tuple}
     ep_flag::Bool = false
     status::Symbol = :new
     u::Vector{T}
-    TS::Vector{T}
+    TS::Vector{T}  # tangent space (not normalized)
+    t::Vector{T}  # normalized tangent vector
     s::Int64 = 1
     R::T
     data::D = ()
 end
-Chart(T::DataType) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), R=zero(T))
+Chart(T::DataType) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), t=Vector{T}(), R=zero(T))
 
 # specialize(chart::Chart) = chart
 specialize(chart::Chart) = Chart(pt=chart.pt, pt_type=chart.pt_type, ep_flag=chart.ep_flag, 
-    status=chart.status, u=chart.u, TS=chart.TS, s=chart.s, R=chart.R, data=(chart.data...,)) 
+    status=chart.status, u=chart.u, TS=chart.TS, t=chart.t, s=chart.s, R=chart.R, data=(chart.data...,)) 
 
 #-------------------------------------------------------------------------------
 
@@ -67,7 +70,8 @@ Base.@kwdef mutable struct AtlasOptions{T}
     stepmax::T = T(1)
     stepdecrease::T = T(1/2)
     stepincrease::T = T(1.125)
-    cosαmax::T = T(0.99)  # approx 8 degrees
+    αmax::T = T(0.125)  # approx 7 degrees
+    ga::T = T(0.95)  # adaptation security factor
     maxiter::Int64 = 100
 end
 AtlasOptions(T::DataType) = AtlasOptions{T}()
@@ -166,8 +170,13 @@ function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
     # Put the initial guess into a chart structure
     initial = getinitial(zp)
     @assert length(initial.u) == n
-    atlas.currentchart = Chart{T, D}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, 
+    atlas.currentchart = Chart{T, D}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, t=zeros(T, n),
         data=initial.data, R=atlas.options.initialstep, s=atlas.options.initialdirection)
+    atlas.currentchart.t .= atlas.currentchart.TS.*atlas.currentchart.s
+    normTS = norm(initial.TS)
+    if normTS > 0
+        initial.t ./= normTS
+    end
     # Set up the initial projection condition (TODO: this could be generalised for other projection conditions)
     resize!(atlas.prcond.u, n) .= initial.u
     resize!(atlas.prcond.TS, n) .= zero(T)
@@ -247,11 +256,34 @@ function addchart!(atlas::Atlas{T}, prob) where T
         chart.pt_type = :EP
         chart.ep_flag = true
     end
+    # Update the tangent vector
     dfdu = jacobian_ad(zp, chart.u, prob, chart.data)
     dfdp = zeros(T, length(chart.u))
     dfdp[fidx(zp, atlas.prcondidx)] .= one(T)
     chart.TS .= dfdu \ dfdp
-    # TODO: check for the angle
+    chart.t .= chart.s.*chart.TS./norm(chart.TS)
+    opt = atlas.options
+    # Check the angle
+    if !isempty(atlas.currentcurve)
+        chart0 = atlas.currentcurve[end]
+        β = acos(clamp(dot(chart.t, chart0.t), -1, 1))
+        if β > opt.αmax*opt.stepincrease
+            # Angle is too large, attempt to adjust step size
+            if chart0.R > opt.stepmin
+                chart.status = :rejected
+                chart0.R = clamp(chart0.R*opt.stepdecrease, opt.stepmin, opt.stepmax)
+                return predict!
+            else
+                @warn "Minimum step size reached but angle constraints not met" chart
+            end
+        end
+        if opt.stepincrease^2*β < opt.αmax
+            mult = opt.stepincrease
+        else
+            mult = clamp(opt.αmax / (sqrt(opt.stepincrease)*β), opt.stepdecrease, opt.stepincrease)
+        end
+        chart.R = clamp(opt.ga*mult*chart.R, opt.stepmin, opt.stepmax)
+    end
     push!(atlas.currentcurve, chart)
     return flush!
 end

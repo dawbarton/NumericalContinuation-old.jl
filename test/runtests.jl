@@ -45,4 +45,11 @@ end
     residual!(res, probz, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
     prob1 = Coverings.runstatemachine!(prob)
+    u = [c.u for c in prob1.atlas.charts]
+    ux = [u[1] for u in u]
+    uy = [u[2] for u in u]
+    uz = [u[3] for u in u]
+    @test all(@. isapprox(ux^2 + uy^2 - 1, 0, atol=1e-6))
+    @test all(@. isapprox(ux + uy + uz, 0, atol=1e-6))
+    # Should add some coverage tests - is the manifold properly covered (with 100 points it should be!)
 end
