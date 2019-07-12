@@ -43,8 +43,5 @@ end
     res = zeros(2)
     residual!(res, probz, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
-    # prob = NumericalContinuation.ContinuationProblem()
-    # push!(prob, circle)
-    # push!(prob, plane)
-    # NumericalContinuation.Coverings.init_covering!(prob.atlas, prob)
+    NumericalContinuation.Coverings.init_covering!(prob.atlas, prob)
 end

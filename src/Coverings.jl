@@ -36,7 +36,7 @@ end
 #-------------------------------------------------------------------------------
 
 # Chart contains atlas algorithm specific data
-Base.@kwdef mutable struct Chart{T, D}
+Base.@kwdef mutable struct Chart{T, D <: Tuple}
     pt::Int64 = -1
     pt_type::Symbol = :unknown
     ep_flag::Bool = false
@@ -47,7 +47,7 @@ Base.@kwdef mutable struct Chart{T, D}
     R::T
     data::D = ()
 end
-Chart(T::DataType) = Chart{T, Any}(u=Vector{T}(), TS=Vector{T}(), R=zero(T))
+Chart(T::DataType) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), R=zero(T))
 
 # specialize(chart::Chart) = chart
 specialize(chart::Chart) = Chart(pt=chart.pt, pt_type=chart.pt_type, ep_flag=chart.ep_flag, 
@@ -81,7 +81,7 @@ mutable struct Atlas{T, D}
 end
 
 function Atlas(T::DataType)
-    D = Any
+    D = Tuple
     charts = Vector{Chart{T, D}}()
     currentchart = Chart(T)
     prcond = PrCond(T)
@@ -150,7 +150,7 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 * [`Coverings.correct!`](@ref) if chart status is `:predicted`; otherwise
 * [`Coverings.addchart!`](@ref).
 """
-function init_covering!(atlas::Atlas{T}, prob) where T
+function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
     # Add the projection condition to the zero problem
     zp = getzeroproblem(prob)
     push!(zp, atlas.prcond)
@@ -163,7 +163,7 @@ function init_covering!(atlas::Atlas{T}, prob) where T
     # Put the initial guess into a chart structure
     initial = getinitial(zp)
     @assert length(initial.u) == n
-    atlas.currentchart = Chart{T, Any}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, 
+    atlas.currentchart = Chart{T, D}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, 
         data=initial.data, R=atlas.options.initialstep, s=atlas.options.initialdirection)
     # Set up the initial projection condition (TODO: this could be generalised for other projection conditions)
     resize!(atlas.prcond.u, n) .= initial.u
