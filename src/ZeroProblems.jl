@@ -448,7 +448,7 @@ end
         if (prob !== Nothing) && passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
         end
-        if (data !== Nothing) && passdata(ϕ.parameters[i])
+        if (data !== Nothing) && passdata(Φ.parameters[i])
             push!(expr.args, :(data[$i]))
         end
         push!(body.args, expr)
