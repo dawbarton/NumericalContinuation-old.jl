@@ -41,6 +41,9 @@ end
     res = zeros(2)
     residual!(res, zp, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
+    @show ZeroProblems.jacobian_ad(zp, [0.1, 0.2, 0.3])
+    J = zeros(3, 3)
+    @show ZeroProblems.jacobian!(J, zp, [0.1, 0.2, 0.3])
     # prob = NumericalContinuation.ContinuationProblem()
     # push!(prob, circle)
     # push!(prob, plane)

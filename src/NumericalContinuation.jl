@@ -12,5 +12,10 @@ include("AlgebraicProblems.jl")
 using .Coverings: Atlas
 using .ZeroProblems: ZeroProblem
 
+# Core functionality
+export Coverings, ZeroProblems
+
+# Toolboxes
+export AlgebraicProblems
 
 end # module

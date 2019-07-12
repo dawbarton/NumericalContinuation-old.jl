@@ -4,6 +4,8 @@ using UnsafeArrays
 using ..NumericalContinuation: AbstractContinuationProblem, getzeroproblem
 import ..NumericalContinuation: specialize
 
+using ForwardDiff
+
 #--- Exports
 
 export ZeroProblem, ZeroSubproblem, Var, residual!, fdim, udim, dependencies
@@ -450,6 +452,28 @@ end
     push!(body.args, :res)
     # @show body
     body
+end
+
+function jacobian!(J, zp::ZeroProblem{T}, u, args...) where T
+    # A simple forward difference
+    ϵ = T(1e-6)
+    @assert size(J, 1) == size(J, 2) == length(u)
+    res = zeros(T, length(u))
+    residual!(res, zp, u, args...)
+    for i in eachindex(u)
+        uu = u[i]
+        u[i] += ϵ
+        residual!(uview(J, :, i), zp, u, args...)
+        for j in eachindex(u)
+            J[j, i] = (J[j, i] - res[j])/ϵ
+        end
+        u[i] = uu
+    end
+    return J
+end
+
+function jacobian_ad(zp::ZeroProblem, u, args...) 
+    ForwardDiff.jacobian((res, u)->residual!(res, zp, u, args...), zeros(size(u)), u)
 end
 
 function getinitial(zp::ZeroProblem{T}) where T
