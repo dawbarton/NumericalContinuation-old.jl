@@ -44,6 +44,7 @@ end
     res = zeros(2)
     residual!(res, probz, [0.1, 0.2, 0.3])
     @test res ≈ [-0.95, 0.6]
+    Coverings.setcontinuationvar!(prob.atlas, plane[2])
     prob1 = Coverings.runstatemachine!(prob)
     u = [c.u for c in prob1.atlas.charts]
     ux = [u[1] for u in u]

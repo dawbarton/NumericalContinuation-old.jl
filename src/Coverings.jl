@@ -7,10 +7,10 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: AbstractZeroSubproblem, getinitial, fidx, udim, fdim,
+using ..ZeroProblems: AbstractZeroSubproblem, getinitial, uidx, fidx, udim, fdim,
     jacobian_ad
 using ..NumericalContinuation: getoption, getzeroproblem, getatlas
-import ..ZeroProblems: residual!
+import ..ZeroProblems: residual!, Var
 import ..NumericalContinuation: specialize, setuseroptions!
 
 using LinearAlgebra
@@ -83,6 +83,8 @@ mutable struct Atlas{T, D}
     currentchart::Chart{T, D}
     prcond::PrCond{T}
     prcondidx::Int64
+    contvar::Var{T}
+    contvaridx::Int64
     currentcurve::Vector{Chart{T, D}}
     options::AtlasOptions{T}
 end
@@ -93,9 +95,11 @@ function Atlas(T::DataType)
     currentchart = Chart(T)
     prcond = PrCond(T)
     prcondidx = 0
+    contvar = Var(:null, 1, T=T)
+    contvaridx = 0
     currentcurve = Vector{Chart{T, D}}()
     options = AtlasOptions(T)
-    return Atlas{T, D}(charts, currentchart, prcond, prcondidx, currentcurve, options)
+    return Atlas{T, D}(charts, currentchart, prcond, prcondidx, contvar, contvaridx, currentcurve, options)
 end
 
 function specialize(atlas::Atlas)
@@ -104,7 +108,7 @@ function specialize(atlas::Atlas)
     C = typeof(currentchart)
     charts = convert(Vector{C}, atlas.charts)
     currentcurve = convert(Vector{C}, atlas.currentcurve)
-    return Atlas(charts, currentchart, atlas.prcond, atlas.prcondidx, currentcurve, atlas.options)
+    return Atlas(charts, currentchart, atlas.prcond, atlas.prcondidx, atlas.contvar, atlas.contvaridx, currentcurve, atlas.options)
 end
 
 function setuseroptions!(atlas::Atlas, options::Dict)
@@ -118,6 +122,8 @@ function setuseroptions!(atlas::Atlas, options::Dict)
     end
     return atlas
 end
+
+setcontinuationvar!(atlas::Atlas{T}, contvar::Var{T}) where T = (atlas.contvar = contvar; atlas)
 
 #-------------------------------------------------------------------------------
 
@@ -162,6 +168,7 @@ function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
     zp = getzeroproblem(prob)
     push!(zp, atlas.prcond)
     atlas.prcondidx = fidx(zp, atlas.prcond)  # store the location within the problem structure
+    atlas.contvaridx = uidx(zp, atlas.contvar)
     # Check dimensionality
     n = udim(zp)
     if n != fdim(zp)
@@ -180,7 +187,7 @@ function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
     # Set up the initial projection condition (TODO: this could be generalised for other projection conditions)
     resize!(atlas.prcond.u, n) .= initial.u
     resize!(atlas.prcond.TS, n) .= zero(T)
-    atlas.prcond.TS[end] = one(T)  # FIXME: assume the last variable is the continuation variable
+    atlas.prcond.TS[uidx(zp, atlas.contvaridx)] .= one(T)
     # Determine the first state
     if atlas.options.correctinitial
         atlas.currentchart.status = :predicted

@@ -10,6 +10,7 @@ form
 """
 module AlgebraicProblems
 
+using ..NumericalContinuation: numtype
 using ..ZeroProblems: Var, AbstractZeroSubproblem
 import ..ZeroProblems: residual!, fdim, getinitial
 
@@ -62,7 +63,7 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     u = Var(:u, length(u0), u0=u0)
     p = Var(:p, length(p0), u0=p0)
     # Helpers
-    T = eltype(u)
+    T = numtype(u)
     U = u0 isa Vector ? Vector{T} : T
     P = p0 isa Vector ? Vector{T} : T
     # TODO: add monitor functions for the parameters (cf. coco_add_pars)

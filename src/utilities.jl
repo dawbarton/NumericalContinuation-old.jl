@@ -19,3 +19,10 @@ specialize(prob) = prob  # default fall-back
 Set the internal options of a toolbox structure.
 """
 function setuseroptions! end  
+
+"""
+    numtype(x)
+
+Return the underlying number type used by `x`.
+"""
+function numtype end

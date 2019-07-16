@@ -2,7 +2,7 @@ module ZeroProblems
 
 using UnsafeArrays
 using ..NumericalContinuation: AbstractContinuationProblem, getzeroproblem
-import ..NumericalContinuation: specialize
+import ..NumericalContinuation: specialize, numtype
 
 using ForwardDiff
 
@@ -128,7 +128,7 @@ function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offs
         if (u0 !== nothing) || (t0 !== nothing)
             throw(ArgumentError("Cannot have both a parent and u0 and/or t0"))
         end
-        T = eltype(parent)
+        T = numtype(parent)
     else
         if T === nothing
             if u0 === nothing
@@ -148,7 +148,7 @@ end
 Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
 getinitial(u::Var) = (u=u.u0, TS=u.t0)
-Base.eltype(u::Var{T}) where T = T
+numtype(u::Var{T}) where T = T
 Base.parent(u::Var) = u.parent
 
 function Base.show(io::IO, u::Var{T}) where T
@@ -173,7 +173,7 @@ Base.nameof(subprob::AbstractZeroSubproblem) = subprob.name
 dependencies(subprob::AbstractZeroSubproblem) = subprob.deps
 fdim(subprob::AbstractZeroSubproblem) = subprob.fdim
 getinitial(subprob::AbstractZeroSubproblem) = (data=nothing,)
-Base.eltype(subprob::AbstractZeroSubproblem{T}) where T = T
+numtype(subprob::AbstractZeroSubproblem{T}) where T = T
 Base.getindex(subprob::AbstractZeroSubproblem, idx::Integer) = getindex(subprob.deps, idx)
 Base.getindex(subprob::AbstractZeroSubproblem, sym::Symbol) = subprob.vars[sym]
 
@@ -215,7 +215,7 @@ function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.re
             push!(deps, u[2])
         end
     end
-    T = eltype(first(deps))
+    T = numtype(first(deps))
     vars = Dict{Symbol, Var{T}}()
     for dep in deps
         vars[nameof(dep)] = dep
