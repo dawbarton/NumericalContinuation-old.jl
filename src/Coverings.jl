@@ -128,24 +128,26 @@ setcontinuationvar!(atlas::Atlas{T}, contvar::Var{T}) where T = (atlas.contvar =
 #-------------------------------------------------------------------------------
 
 function runstatemachine!(prob)
-    state = init_covering!(getatlas(prob), prob)
+    state = Base.RefValue{Any}(nothing)
+    init_covering!(getatlas(prob), prob, state)
     if getoption(prob, :general, :specialize, default=true)
         _prob = specialize(prob)
     else
         _prob = prob
     end
-    return _runstatemachine!(getatlas(_prob), _prob, state)
+    _runstatemachine!(getatlas(_prob), _prob, state)
+    return _prob
 end
 
 @noinline function _runstatemachine!(atlas::Atlas, prob, state)  # a function barrier
-    while state !== nothing
-        state = state(atlas, prob)
+    while state[] !== nothing
+        state[](atlas, prob, state)
     end 
     return prob
 end
 
 """
-    init_covering!(atlas, prob)
+    init_covering!(atlas, prob, nextstate)
 
 Initialise the data structures associated with the covering (atlas) algorithm.
 
@@ -163,7 +165,7 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 * [`Coverings.correct!`](@ref) if chart status is `:predicted`; otherwise
 * [`Coverings.addchart!`](@ref).
 """
-function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
+function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
     # Add the projection condition to the zero problem
     zp = getzeroproblem(prob)
     push!(zp, atlas.prcond)
@@ -191,15 +193,16 @@ function init_covering!(atlas::Atlas{T, D}, prob) where {T, D}
     # Determine the first state
     if atlas.options.correctinitial
         atlas.currentchart.status = :predicted
-        return correct!
+        nextstate[] = correct!
     else
         atlas.currentchart.status = :corrected
-        return addchart!
+        nextstate[] = addchart!
     end
+    return
 end
 
 """
-    correct!(atlas, prob)
+    correct!(atlas, prob, nextstate)
 
 Correct the (predicted) solution in the current chart with the projection
 condition as previously specified.
@@ -216,7 +219,7 @@ condition as previously specified.
 * [`Coverings.addchart!`](@ref) if the chart status is `:corrected`; otherwise
 * [`Coverings.refine!`](@ref).
 """
-function correct!(atlas::Atlas, prob)
+function correct!(atlas::Atlas, prob, nextstate)
     # Solve zero problem
     zp = getzeroproblem(prob)
     chart = atlas.currentchart
@@ -224,15 +227,16 @@ function correct!(atlas::Atlas, prob)
     if converged(sol)
         chart.u .= sol.zero
         chart.status = :corrected
-        return addchart!
+        nextstate[] = addchart!
     else
         chart.status = :rejected
-        return refine!
+        nextstate[] = refine!
     end
+    return
 end
 
 """
-    addchart!(atlas, prob)
+    addchart!(atlas, prob, nextstate)
 
 Add a corrected chart to the list of charts that defines the current curve and
 update any calculated properties (e.g., tangent vector).
@@ -255,7 +259,7 @@ update any calculated properties (e.g., tangent vector).
 1. Update monitor functions.
 2. Locate events.
 """
-function addchart!(atlas::Atlas{T}, prob) where T
+function addchart!(atlas::Atlas{T}, prob, nextstate) where T
     zp = getzeroproblem(prob)
     chart = atlas.currentchart
     @assert chart.status === :corrected "Chart has not been corrected before adding"
@@ -279,7 +283,8 @@ function addchart!(atlas::Atlas{T}, prob) where T
             if chart0.R > opt.stepmin
                 chart.status = :rejected
                 chart0.R = clamp(chart0.R*opt.stepdecrease, opt.stepmin, opt.stepmax)
-                return predict!
+                nextstate[] =  predict!
+                return
             else
                 @warn "Minimum step size reached but angle constraints not met" chart
             end
@@ -292,11 +297,12 @@ function addchart!(atlas::Atlas{T}, prob) where T
         chart.R = clamp(opt.ga*mult*chart.R, opt.stepmin, opt.stepmax)
     end
     push!(atlas.currentcurve, chart)
-    return flush!
+    nextstate[] =  flush!
+    return
 end
 
 """
-    refine!(atlas, prob)
+    refine!(atlas, prob, nextstate)
 
 Update the continuation strategy to attempt to progress the continuation after
 a failed correction step.
@@ -313,22 +319,22 @@ a failed correction step.
   otherwise
 * [`Coverings.flush!`](@ref).
 """
-function refine!(atlas::Atlas, prob)
+function refine!(atlas::Atlas, prob, nextstate)
     if isempty(atlas.currentcurve)
-        return flush!
+        nextstate[] = flush!
     else
         chart = first(atlas.currentcurve)
         if chart.R > atlas.options.stepmin
             chart.R = max(chart.R*atlas.options.stepdecrease, atlas.options.stepmin)
-            return predict!
+            nextstate[] = predict!
         else
-            return flush!
+            nextstate[] = flush!
         end
     end
 end
 
 """
-    flush!(atlas, prob)
+    flush!(atlas, prob, nextstate)
 
 Given a representation of a curve in the form of a list of charts, add all
 corrected charts to the atlas, and update the current curve.
@@ -344,7 +350,7 @@ corrected charts to the atlas, and update the current curve.
 * [`Coverings.predict!`](@ref) if charts were added to the atlas, otherwise
 * `nothing` to terminate the state machine.
 """
-function flush!(atlas::Atlas, prob)
+function flush!(atlas::Atlas, prob, nextstate)
     added = false
     ep_flag = false
     for chart in atlas.currentcurve
@@ -362,19 +368,20 @@ function flush!(atlas::Atlas, prob)
         resize!(atlas.currentcurve, 1)
         atlas.currentcurve[1] = last(atlas.charts)
         if ep_flag
-            return nothing
+            nextstate[] = nothing
         else
-            return predict!
+            nextstate[] = predict!
         end
     else
         # Nothing was added so the continuation failed
         # TODO: indicate the type of failure?
-        return nothing
+        nextstate[] = nothing
     end
+    return
 end
 
 """
-    predict!(atlas, prob)
+    predict!(atlas, prob, nextstate)
 
 Make a deep copy of the (single) chart in the current curve and generate a
 prediction for the next chart along the curve.
@@ -390,7 +397,7 @@ prediction for the next chart along the curve.
 
 * [`Coverings.correct!`](@ref).
 """
-function predict!(atlas::Atlas, prob)
+function predict!(atlas::Atlas, prob, nextstate)
     @assert length(atlas.currentcurve) == 1 "Multiple charts in atlas.currentcurve"
     # Copy the existing chart along with toolbox data
     predicted = deepcopy(first(atlas.currentcurve))
@@ -402,7 +409,8 @@ function predict!(atlas::Atlas, prob)
     # Update the projection condition
     atlas.prcond.u .= predicted.u
     atlas.prcond.TS .= predicted.TS
-    return correct!
+    nextstate[] = correct!
+    return
 end
 
 
