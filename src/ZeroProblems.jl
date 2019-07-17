@@ -413,6 +413,12 @@ function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing, data=nothi
     uv = [uview(u, zp.ui[i]) for i in eachindex(zp.ui)]
     for i in eachindex(zp.ϕ)
         args = Any[uview(res, zp.ϕi[i]), zp.ϕ[i]]
+        if (prob !== nothing) && passproblem(zp.ϕ[i])
+            push!(args, prob)
+        end
+        if (data !== nothing) && passdata(zp.ϕ[i])
+            push!(args, data[i])
+        end
         if length(zp.ϕdeps[i]) == 0
             # No dependencies means pass everything
             push!(args, u)
@@ -420,12 +426,6 @@ function residual!(res, zp::ZeroProblem{T, Nothing}, u, prob=nothing, data=nothi
             for dep in zp.ϕdeps[i]
                 push!(args, uv[dep])
             end
-        end
-        if (prob !== nothing) && passproblem(zp.ϕ[i])
-            push!(args, prob)
-        end
-        if (data !== nothing) && passdata(zp.ϕ[i])
-            push!(args, data[i])
         end
         residual!(args...)
     end
@@ -439,17 +439,20 @@ end
     end
     # Call each of the subproblems
     for i in eachindex(D)
-        if length(D[i]) == 0
-            # No dependencies means pass everything
-            expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i], u))
-        else
-            expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i], $((:(uv[$(D[i][j])]) for j in eachindex(D[i]))...)))
-        end
+        expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i]))
         if (prob !== Nothing) && passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
         end
         if (data !== Nothing) && passdata(Φ.parameters[i])
             push!(expr.args, :(data[$i]))
+        end
+        if length(D[i]) == 0
+            # No dependencies means pass everything
+            push!(expr.args, :u)
+        else
+            for j in eachindex(D[i])
+                push!(expr.args, :(uv[$(D[i][j])]))
+            end
         end
         push!(body.args, expr)
     end
