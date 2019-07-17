@@ -11,13 +11,13 @@ form
 module AlgebraicProblems
 
 using ..NumericalContinuation: numtype
-using ..ZeroProblems: Var, AbstractZeroSubproblem
+using ..ZeroProblems: Var, AbstractZeroProblem
 import ..ZeroProblems: residual!, fdim, getinitial
 
 export AlgebraicProblem
 
 """
-    AlgebraicProblem <: AbstractZeroSubproblem
+    AlgebraicProblem <: AbstractZeroProblem
 
 A wrapper around an algebraic zero problem of the form
 
@@ -26,7 +26,7 @@ A wrapper around an algebraic zero problem of the form
 ```
 
 The function can operate on scalars or vectors, and be in-place or not. It
-assumes that the function output is of the same dimension as `u`.
+assumes that the function output is of the same dimension as `u`.   
 
 # Example
 
@@ -38,7 +38,7 @@ ap = AlgebraicProblem((u, p) -> u^3 - p, 1.5, 1)  # u0 = 1.5, p0 = 1
 push!(prob, ap)
 ```
 """
-struct AlgebraicProblem{T, F, U, P} <: AbstractZeroSubproblem{T}
+struct AlgebraicProblem{T, F, U, P} <: AbstractZeroProblem{T}
     name::Symbol
     deps::Vector{Var{T}}
     f!::F

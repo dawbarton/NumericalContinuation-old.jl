@@ -7,7 +7,7 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: AbstractZeroSubproblem, getinitial, uidx, fidx, udim, fdim,
+using ..ZeroProblems: AbstractZeroProblem, getinitial, uidx, fidx, udim, fdim,
     jacobian_ad
 using ..NumericalContinuation: getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!, Var
@@ -21,7 +21,7 @@ export Atlas, Chart
 
 #-------------------------------------------------------------------------------
 
-struct PrCond{T} <: AbstractZeroSubproblem{T}
+struct PrCond{T} <: AbstractZeroProblem{T}
     name::Symbol
     deps::Tuple{}
     fdim::Int64

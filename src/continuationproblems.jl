@@ -10,7 +10,7 @@ end
 function ContinuationProblem(T::DataType=Float64)
     options = Dict{Symbol, Dict{Symbol, Any}}()
     atlas = Atlas(T)
-    zeroproblem = ZeroProblem(T)
+    zeroproblem = ExtendedZeroProblem(T)
     return ContinuationProblem{T, Any, Any}(options, atlas, zeroproblem)
 end
 
