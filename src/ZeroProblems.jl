@@ -159,6 +159,33 @@ function Base.show(io::IO, u::Var{T}) where T
     print(io, "Variable ($varname) with $el ($typename)")
 end
 
+#--- Common helpers
+
+function _constructdeps(u0, t0)
+    # Construct continuation variables as necessary
+    deps = Vector{Var}()  # abstract type - will specialize when returning
+    for (u, t) in zip(pairs(u0), t0)
+        if !(u[2] isa Var)
+            varname = u[1] isa Symbol ? u[1] : Symbol(:u, u[1])
+            if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
+                throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
+            end
+            push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
+        else
+            push!(deps, u[2])
+        end
+    end
+    T = numtype(first(deps))
+    vars = Dict{Symbol, Var{T}}()
+    for dep in deps
+        if nameof(dep) in keys(vars)
+            @warn "Duplicate variable name" dep
+        end
+        vars[nameof(dep)] = dep
+    end
+    return (convert(Vector{Var{T}}, deps), vars)
+end
+
 #--- ZeroSubproblem
 
 # For simple subproblems the ZeroSubproblem type can be used to define a
@@ -202,24 +229,7 @@ struct ZeroSubproblem{T, F} <: AbstractZeroSubproblem{T}
 end
 
 function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    # Construct continuation variables as necessary
-    deps = Vector{Var}()  # abstract type - will specialize when constructing ZeroSubproblem
-    for (u, t) in zip(pairs(u0), t0)
-        if !(u[2] isa Var)
-            varname = u[1] isa Symbol ? u[1] : Symbol(:u, u[1])
-            if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
-                throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
-            end
-            push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
-        else
-            push!(deps, u[2])
-        end
-    end
-    T = numtype(first(deps))
-    vars = Dict{Symbol, Var{T}}()
-    for dep in deps
-        vars[nameof(dep)] = dep
-    end
+    deps, vars = _constructdeps(u0, t0)
     # Determine whether f is in-place or not
     if inplace
         f! = f
@@ -229,16 +239,47 @@ function ZeroSubproblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.re
     else
         f! = (res, u...) -> res .= f(u...)
         if fdim == 0
-            res = f((u.u0 for u in deps)...)
+            res = f((getinitial(u).u for u in deps)...)
             fdim = length(res)
         end
     end
     # Construct the continuation variables
-    return ZeroSubproblem(name, [deps...], f!, fdim, vars)
+    return ZeroSubproblem(name, deps, f!, fdim, vars)
 end
 ZeroSubproblem(f, u0; t0=nothing, kwargs...) = ZeroSubproblem(f, (u0,); t0=(t0,), kwargs...)
 
 residual!(res, zp::ZeroSubproblem, u...) = zp.f!(res, u...)
+
+#--- MonitorFunction
+
+mutable struct MonitorFunction{T, F} <: AbstractZeroSubproblem{T}
+    name::Symbol
+    deps::Vector{Var{T}}
+    f::F
+    vars::Dict{Symbol, Var{T}}
+    active::Bool
+end
+
+function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(nothing), name=:mfunc, active=false)
+    # Construct continuation variables as necessary
+    deps, vars = _constructdeps(u0, t0)
+    udim = active ? 1 : 0
+    μ = Var(name, udim, T=numtype(first(deps))) 
+    insert!(deps, 1, μ)
+    vars[name] = μ
+    # Construct the continuation variables
+    return MonitorFunction(name, deps, f, vars, active)
+end
+MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0,), kwargs...)
+
+fdim(mfunc::MonitorFunction) = 1
+passdata(mfunc::MonitorFunction) = true
+getinitial(mfunc::MonitorFunction) = (data=Ref(mfunc.f((getinitial(u).u for u in deps)...)),)
+
+function residual!(res, mfunc::MonitorFunction, data, um, u...)
+    μ = isempty(um) ? data[] : um[1]
+    res[1] = mfunc.f(u...) - μ
+end
 
 #--- ZeroProblem - the full problem structure
 

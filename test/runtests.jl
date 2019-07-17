@@ -28,6 +28,10 @@ end
     @test res[1] ≈ 2.375
 end
 
+@testset "Monitor functions" begin
+    
+end
+
 @testset "Cylinder/plane intersection" begin
     circle = ZeroSubproblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0])
     @test_throws ArgumentError plane = ZeroSubproblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
