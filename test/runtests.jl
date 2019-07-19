@@ -5,6 +5,8 @@ using NumericalContinuation.ZeroProblems
 using NumericalContinuation.Coverings
 using NumericalContinuation.AlgebraicProblems
 
+using NLsolve
+
 @testset "ZeroProblem specification (cubic)" begin
     res = zeros(1)
     f = u -> u[1]^3 - u[2]
@@ -21,15 +23,12 @@ using NumericalContinuation.AlgebraicProblems
 end
 
 @testset "Algebraic continuation (cubic)" begin
-    res = zeros(1)
+    prob = ContinuationProblem()
     f = (u, p) -> u^3 - p
-    ap = AlgebraicProblem(f, 1.0, 1.0)
-    residual!(res, ap, [1.5], [1.0])
-    @test res[1] ≈ 2.375
-end
-
-@testset "Monitor functions" begin
-    
+    push!(prob, AlgebraicProblem(f, 1.0, 1.0))
+    res = zeros(fdim(prob))
+    residual!(res, prob, [1.5, 1.0], nothing, (nothing, Ref(1.25)))
+    @test res ≈ [1.5^3-1.0, 1.0-1.25]
 end
 
 @testset "Cylinder/plane intersection" begin

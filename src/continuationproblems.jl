@@ -1,21 +1,29 @@
 #-------------------------------------------------------------------------------
-abstract type AbstractContinuationProblem{T} end
-
-mutable struct ContinuationProblem{T, A, Z} <: AbstractContinuationProblem{T}
+mutable struct ContinuationProblem{T} <: AbstractContinuationProblem{T}
     options::Dict{Symbol, Dict{Symbol, Any}}
-    atlas::A
-    zeroproblem::Z
+    atlas::AbstractAtlas{T}
+    zeroproblem::ExtendedZeroProblem{T}
+    toolboxes::Vector{AbstractToolbox{T}}
 end
 
 function ContinuationProblem(T::DataType=Float64)
     options = Dict{Symbol, Dict{Symbol, Any}}()
     atlas = Atlas(T)
     zeroproblem = ExtendedZeroProblem(T)
-    return ContinuationProblem{T, Any, Any}(options, atlas, zeroproblem)
+    return ContinuationProblem{T}(options, atlas, zeroproblem, AbstractToolbox{T}[])
 end
 
 getatlas(prob::ContinuationProblem) = prob.atlas
 getzeroproblem(prob::ContinuationProblem) = prob.zeroproblem
+gettoolboxes(prob::ContinuationProblem) = prob.toolboxes
+
+function Base.push!(prob::ContinuationProblem, tbx::AbstractToolbox)
+    for subprob in getzeroproblems(tbx)
+        push!(prob, subprob)
+    end
+    push!(prob.toolboxes, tbx)
+    return prob
+end
 
 """
     getoption(prob, toolbox, key; default=nothing)
@@ -43,5 +51,6 @@ end
 function specialize(prob::ContinuationProblem{T}) where T
     atlas = specialize(prob.atlas)
     zeroproblem = specialize(prob.zeroproblem)
-    return ContinuationProblem{T, typeof(atlas), typeof(zeroproblem)}(prob.options, atlas, zeroproblem)
+    toolboxes = AbstractToolbox{T}[specialize(tbx) for tbx in prob.toolboxes]
+    return ContinuationProblem{T}(prob.options, atlas, zeroproblem, toolboxes)
 end

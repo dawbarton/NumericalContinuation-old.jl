@@ -9,7 +9,7 @@ module Coverings
 
 using ..ZeroProblems: AbstractZeroProblem, getinitial, uidx, fidx, udim, fdim,
     jacobian_ad
-using ..NumericalContinuation: getoption, getzeroproblem, getatlas
+using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!, Var
 import ..NumericalContinuation: specialize, setuseroptions!
 
@@ -78,7 +78,7 @@ AtlasOptions(T::DataType) = AtlasOptions{T}()
 
 #-------------------------------------------------------------------------------
 
-mutable struct Atlas{T, D}
+mutable struct Atlas{T, D} <: AbstractAtlas{T}
     charts::Vector{Chart{T, D}}
     currentchart::Chart{T, D}
     prcond::PrCond{T}

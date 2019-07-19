@@ -26,3 +26,27 @@ function setuseroptions! end
 Return the underlying number type used by `x`.
 """
 function numtype end
+
+"""
+    getzeroproblem(prob)
+
+Return the zeroproblem from the problem structure.
+"""
+function getzeroproblem end
+
+"""
+    getatlas(prob)
+
+Return the atlas from the problem structure.
+"""
+function getatlas end
+
+"""
+    gettoolboxes
+
+Return the toolboxes in the problem structure.
+"""
+function gettoolboxes end
+
+function getoption end  # docstring later
+function setoption! end  # docstring later

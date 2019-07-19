@@ -8,8 +8,9 @@ using ForwardDiff
 
 #--- Exports
 
-export ExtendedZeroProblem, ZeroProblem, Var
-export residual!, fdim, udim, fidx, uidx, dependencies
+export ExtendedZeroProblem, ZeroProblem, Var, MonitorFunction, ParameterFunction
+export residual!, fdim, udim, fidx, uidx, dependencies, addparameter, 
+    addparameter!
 
 #--- Forward definitions
 
@@ -274,12 +275,24 @@ MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0
 
 fdim(mfunc::MonitorFunction) = 1
 passdata(mfunc::MonitorFunction) = true
-getinitial(mfunc::MonitorFunction) = (data=Ref(mfunc.f((getinitial(u).u for u in deps)...)),)
+getinitial(mfunc::MonitorFunction) = (data=Ref(mfunc.f((getinitial(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
 
 function residual!(res, mfunc::MonitorFunction, data, um, u...)
     μ = isempty(um) ? data[] : um[1]
     res[1] = mfunc.f(u...) - μ
 end
+
+#--- ParameterFunction - a specialized MonitorFunction for adding continuation parameters
+
+_identitylift(x) = x[1]
+
+const ParameterFunction{T} = MonitorFunction{T, typeof(_identitylift)}
+
+function addparameter(u::Var; name, active=false)
+    return MonitorFunction(_identitylift, (u,), name=name, active=active)
+end
+
+addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = push!(getzeroproblem(prob), addparameter(u; kwargs...))
 
 #--- ExtendedZeroProblem - the full problem structure
 
@@ -448,16 +461,16 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, prob::AbstractZeroProbl
     return zp
 end
 
-Base.push!(prob::AbstractContinuationProblem{T}, prob::AbstractZeroProblem{T}) where T = push!(getzeroproblem(prob), prob)
+Base.push!(prob::AbstractContinuationProblem{T}, zp::AbstractZeroProblem{T}) where T = push!(getzeroproblem(prob), zp)
 
 function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
     uv = [uview(u, zp.ui[i]) for i in eachindex(zp.ui)]
     for i in eachindex(zp.ϕ)
         args = Any[uview(res, zp.ϕi[i]), zp.ϕ[i]]
-        if (prob !== nothing) && passproblem(zp.ϕ[i])
+        if passproblem(zp.ϕ[i])
             push!(args, prob)
         end
-        if (data !== nothing) && passdata(zp.ϕ[i])
+        if passdata(zp.ϕ[i])
             push!(args, data[i])
         end
         if length(zp.ϕdeps[i]) == 0
@@ -481,10 +494,10 @@ end
     # Call each of the problems
     for i in eachindex(D)
         expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i]))
-        if (prob !== Nothing) && passproblem(Φ.parameters[i])
+        if passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
         end
-        if (data !== Nothing) && passdata(Φ.parameters[i])
+        if passdata(Φ.parameters[i])
             push!(expr.args, :(data[$i]))
         end
         if length(D[i]) == 0

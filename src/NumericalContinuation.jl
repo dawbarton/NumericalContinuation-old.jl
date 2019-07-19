@@ -1,16 +1,23 @@
 module NumericalContinuation
 
+# Top-level abstract types
+abstract type AbstractContinuationProblem{T} end
+abstract type AbstractToolbox{T} end
+abstract type AbstractAtlas{T} end
+
 include("utilities.jl")
 
-include("continuationproblems.jl")
-
 include("ZeroProblems.jl")
+using .ZeroProblems: ExtendedZeroProblem
+
 include("Coverings.jl")
+using .Coverings: Atlas
+
+include("continuationproblems.jl")
+include("toolboxes.jl")
 
 include("AlgebraicProblems.jl")
 
-using .Coverings: Atlas
-using .ZeroProblems: ExtendedZeroProblem
 
 # Core functionality - modules
 export Coverings, ZeroProblems

@@ -10,14 +10,48 @@ form
 """
 module AlgebraicProblems
 
-using ..NumericalContinuation: numtype
-using ..ZeroProblems: Var, AbstractZeroProblem
+using ..NumericalContinuation: numtype, AbstractToolbox
+import ..NumericalContinuation: getzeroproblems
+using ..ZeroProblems: Var, AbstractZeroProblem, ParameterFunction, addparameter
 import ..ZeroProblems: residual!, fdim, getinitial
 
 export AlgebraicProblem
 
+struct AlgebraicZeroProblem{T, F, U, P} <: AbstractZeroProblem{T}
+    name::Symbol
+    deps::Vector{Var{T}}
+    f!::F
+    fdim::Int64
+    vars::Dict{Symbol, Var{T}}
+end
+
 """
-    AlgebraicProblem <: AbstractZeroProblem
+    AlgebraicZeroProblem(f, u0, p0; name)
+"""
+function AlgebraicZeroProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; name)
+    # Determine whether f is in-place or not
+    if any(method.nargs == 4 for method in methods(f))
+        f! = f
+    else
+        f! = (res, u, p) -> res .= f(u, p)
+    end
+    # Construct the continuation variables
+    u = Var(:u, length(u0), u0=u0)
+    p = Var(:p, length(p0), u0=p0)
+    # Helpers
+    T = numtype(u)
+    U = u0 isa Vector ? Vector{T} : T
+    P = p0 isa Vector ? Vector{T} : T
+    AlgebraicZeroProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0), Dict(:u=>u, :p=>p))
+end
+
+_convertto(T, val) = val
+_convertto(::Type{T}, val) where {T <: Number} = val[1]
+
+residual!(res, ap::AlgebraicZeroProblem{<: Any, <: Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
+
+"""
+    AlgebraicProblem <: AbstractToolbox
 
 A wrapper around an algebraic zero problem of the form
 
@@ -38,41 +72,29 @@ ap = AlgebraicProblem((u, p) -> u^3 - p, 1.5, 1)  # u0 = 1.5, p0 = 1
 push!(prob, ap)
 ```
 """
-struct AlgebraicProblem{T, F, U, P} <: AbstractZeroProblem{T}
+struct AlgebraicProblem{T, Z, A} <: AbstractToolbox{T}
     name::Symbol
-    deps::Vector{Var{T}}
-    f!::F
-    fdim::Int64
-    vars::Dict{Symbol, Var{T}}
+    efunc::Z
+    mfuncs::Vector{ParameterFunction{T}}
+    allfuncs::A
 end
 
-"""
-    AlgebraicProblem(f, u0, p0; pnames=nothing, name=:alg)
-"""
-function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames::Vector=[], name=:alg)
+function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=(), name=:alg)
     if !isempty(pnames) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end
-    # Determine whether f is in-place or not
-    if any(method.nargs == 4 for method in methods(f))
-        f! = f
-    else
-        f! = (res, u, p) -> res .= f(u, p)
+    efunc = AlgebraicZeroProblem(f, u0, p0, name=name)
+    T = numtype(efunc)
+    p = efunc[:p]  # parameter vector
+    mfuncs = Vector{ParameterFunction{T}}()
+    _pnames = isempty(pnames) ? map(i -> Symbol(:p, i), 1:length(p0)) : pnames
+    for (i, pname) in pairs(_pnames)
+        push!(mfuncs, addparameter(Var(pname, 1, parent=p, offset=i-1), name=Symbol(name, :_mfunc, i)))
     end
-    # Construct the continuation variables
-    u = Var(:u, length(u0), u0=u0)
-    p = Var(:p, length(p0), u0=p0)
-    # Helpers
-    T = numtype(u)
-    U = u0 isa Vector ? Vector{T} : T
-    P = p0 isa Vector ? Vector{T} : T
-    # TODO: add monitor functions for the parameters (cf. coco_add_pars)
-    AlgebraicProblem{T, typeof(f!), U, P}(name, [u, p], f!, length(u0), Dict(:u=>u, :p=>p))
+    allfuncs = (efunc, mfuncs...)
+    return AlgebraicProblem{T, typeof(efunc), typeof(allfuncs)}(name, efunc, mfuncs, allfuncs)
 end
 
-_convertto(T, val) = val
-_convertto(::Type{T}, val) where {T <: Number} = val[1]
-
-residual!(res, ap::AlgebraicProblem{<: Any, <: Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
+getzeroproblems(alg::AlgebraicProblem) = alg.allfuncs
 
 end # module
