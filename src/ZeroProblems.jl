@@ -84,12 +84,12 @@ Return the dimension of the variables contained within `u`.
 function udim end
 
 """
-    getinitial(prob)
+    initialdata(prob)
 
 Return the initial data (solution, tangent, toolbox data) used for initialising
 the continuation.
 """
-function getinitial end
+function initialdata end
 
 #--- Variables that zero problems depend on
 
@@ -148,7 +148,7 @@ end
 
 Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
-getinitial(u::Var) = (u=u.u0, TS=u.t0)
+initialdata(u::Var) = (u=u.u0, TS=u.t0)
 numtype(u::Var{T}) where T = T
 Base.parent(u::Var) = u.parent
 
@@ -200,7 +200,7 @@ abstract type AbstractZeroProblem{T} end
 Base.nameof(prob::AbstractZeroProblem) = prob.name
 dependencies(prob::AbstractZeroProblem) = prob.deps
 fdim(prob::AbstractZeroProblem) = prob.fdim
-getinitial(prob::AbstractZeroProblem) = (data=nothing,)
+initialdata(prob::AbstractZeroProblem) = (data=nothing,)
 numtype(prob::AbstractZeroProblem{T}) where T = T
 Base.getindex(prob::AbstractZeroProblem, idx::Integer) = getindex(prob.deps, idx)
 Base.getindex(prob::AbstractZeroProblem, sym::Symbol) = prob.vars[sym]
@@ -240,7 +240,7 @@ function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repea
     else
         f! = (res, u...) -> res .= f(u...)
         if fdim == 0
-            res = f((getinitial(u).u for u in deps)...)
+            res = f((initialdata(u).u for u in deps)...)
             fdim = length(res)
         end
     end
@@ -276,7 +276,7 @@ MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0
 
 fdim(mfunc::MonitorFunction) = 1
 passdata(mfunc::MonitorFunction) = true
-getinitial(mfunc::MonitorFunction) = (data=Ref(mfunc.f((getinitial(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
+initialdata(mfunc::MonitorFunction) = (data=Ref(mfunc.f((initialdata(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
 
 function residual!(res, mfunc::MonitorFunction, data, um, u...)
     μ = isempty(um) ? data[] : um[1]
@@ -616,7 +616,7 @@ function jacobian_ad(zp::ExtendedZeroProblem, u, args...)
     ForwardDiff.jacobian((res, u)->residual!(res, zp, u, args...), zeros(size(u)), u)
 end
 
-function getinitial(zp::ExtendedZeroProblem{T}) where T
+function initialdata(zp::ExtendedZeroProblem{T}) where T
     ndim = udim(zp)
     u = zeros(T, ndim)
     t = zeros(T, ndim)
@@ -626,7 +626,7 @@ function getinitial(zp::ExtendedZeroProblem{T}) where T
             t[zp.ui[i]] .= zp.u[i].t0
         end
     end
-    data = ((getinitial(ϕ).data for ϕ in zp.ϕ)...,)
+    data = ((initialdata(ϕ).data for ϕ in zp.ϕ)...,)
     return (u=u, TS=t, data=data)
 end
 

@@ -7,7 +7,7 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: AbstractZeroProblem, getinitial, uidx, fidx, udim, fdim,
+using ..ZeroProblems: AbstractZeroProblem, initialdata, uidx, fidx, udim, fdim,
     jacobian_ad
 using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!, Var
@@ -177,7 +177,7 @@ function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
         throw(ErrorException("Dimension mismatch; expected number of equations to match number of continuation variables"))
     end
     # Put the initial guess into a chart structure
-    initial = getinitial(zp)
+    initial = initialdata(zp)
     @assert length(initial.u) == n
     atlas.currentchart = Chart{T, D}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, t=zeros(T, n),
         data=initial.data, R=atlas.options.initialstep, s=atlas.options.initialdirection)

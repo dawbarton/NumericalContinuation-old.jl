@@ -13,7 +13,7 @@ module AlgebraicProblems
 using ..NumericalContinuation: numtype, AbstractToolbox
 import ..NumericalContinuation: getzeroproblems
 using ..ZeroProblems: Var, AbstractZeroProblem, ParameterFunction, addparameter
-import ..ZeroProblems: residual!, fdim, getinitial
+import ..ZeroProblems: residual!
 
 export AlgebraicProblem
 
