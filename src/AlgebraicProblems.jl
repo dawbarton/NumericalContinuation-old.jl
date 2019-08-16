@@ -94,8 +94,11 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     return AlgebraicProblem{T}(name, efunc, mfuncs)
 end
 
-AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=:alg, kwargs...) = 
-    push!(prob, AlgebraicProblem(args...; name=nextproblemname(prob, name), kwargs...))
+function AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=:alg, kwargs...)
+    subprob = AlgebraicProblem(args...; name=nextproblemname(prob, name), kwargs...)
+    push!(prob, subprob)
+    return subprob
+end
 
 getsubproblems(alg::AlgebraicProblem) = [alg.efunc; alg.mfuncs]
 

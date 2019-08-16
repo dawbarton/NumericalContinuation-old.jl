@@ -8,7 +8,8 @@ import ForwardDiff
 
 #--- Exports
 
-export ExtendedZeroProblem, ZeroProblem, Var, MonitorFunction, ParameterFunction
+export ExtendedZeroProblem, ZeroProblem, ZeroProblem!, Var, MonitorFunction, 
+    ParameterFunction
 export residual!, fdim, udim, fidx, uidx, dependencies, addparameter, 
     addparameter!, getvar
 
@@ -247,7 +248,14 @@ function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repea
     # Construct the continuation variables
     return ZeroProblem(name, deps, f!, fdim, vars)
 end
+
 ZeroProblem(f, u0; t0=nothing, kwargs...) = ZeroProblem(f, (u0,); t0=(t0,), kwargs...)
+
+function ZeroProblem!(prob::AbstractContinuationProblem, args...; name=:zero, kwargs...)
+    subprob = ZeroProblem(args...; name=nextproblemname(prob, name), kwargs...)
+    push!(prob, subprob)
+    return subprob
+end
 
 residual!(res, zp::ZeroProblem, u...) = zp.f!(res, u...)
 
@@ -403,6 +411,7 @@ function nextproblemname(zp::ExtendedZeroProblem, f::Symbol)
         end
     end
 end
+
 nextproblemname(prob::AbstractContinuationProblem, f) = nextproblemname(getzeroproblem(prob), f)
 
 """
