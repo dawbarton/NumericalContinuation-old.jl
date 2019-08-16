@@ -12,15 +12,6 @@ export ExtendedZeroProblem, ZeroProblem, Var, MonitorFunction, ParameterFunction
 export residual!, fdim, udim, fidx, uidx, dependencies, addparameter, 
     addparameter!, getvar
 
-#--- Notes
-
-# I'm not entirely happy with all the Var mess - need to work out what the
-# appropriate interface is at the ExtendedZeroProblem level. Particularly with
-# the MonitorFunctions, the line between the Var and the AbstractZeroProblem is
-# blurred but the link is one way.
-
-# What dictionaries should we have and what shouldn't be possible.
-
 #--- Forward definitions
 
 """
