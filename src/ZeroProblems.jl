@@ -205,7 +205,7 @@ numtype(prob::AbstractZeroProblem{T}) where T = T
 Base.getindex(prob::AbstractZeroProblem, idx::Integer) = getindex(prob.deps, idx)
 Base.getindex(prob::AbstractZeroProblem, sym::Symbol) = prob.vars[sym]
 
-function Base.show(io::IO, prob::AbstractZeroProblem)
+function Base.show(io::IO, @nospecialize prob::AbstractZeroProblem)
     typename = nameof(typeof(prob))
     probname = nameof(prob)
     neqn = fdim(prob)
@@ -385,6 +385,25 @@ getvarinfo(zp::ExtendedZeroProblem, u::Var) = zp.uvar[u]
 getvarinfo(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
 getprobleminfo(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = zp.ϕprob[f]
 getprobleminfo(zp::ExtendedZeroProblem, f::Symbol) = zp.ϕsym[f]
+
+hasvar(zp::ExtendedZeroProblem, u::Symbol) = u in keys(zp.usym)
+hasproblem(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.ϕsym)
+
+function nextproblemname(zp::ExtendedZeroProblem, f::Symbol)
+    if !hasproblem(zp, f)
+        return f
+    else
+        i = 2
+        while true
+            next = Symbol(f, i)
+            if !hasproblem(zp, next)
+                return next
+            end
+            i += 1
+        end
+    end
+end
+nextproblemname(prob::AbstractContinuationProblem, f) = nextproblemname(getzeroproblem(prob), f)
 
 """
     udim(prob)

@@ -10,12 +10,13 @@ form
 """
 module AlgebraicProblems
 
-using ..NumericalContinuation: numtype, AbstractToolbox
-import ..NumericalContinuation: getzeroproblems
-using ..ZeroProblems: Var, AbstractZeroProblem, ParameterFunction, addparameter
+using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
+import ..NumericalContinuation: getsubproblems
+using ..ZeroProblems: Var, AbstractZeroProblem, ParameterFunction, addparameter, 
+    nextproblemname
 import ..ZeroProblems: residual!
 
-export AlgebraicProblem
+export AlgebraicProblem, AlgebraicProblem!
 
 struct AlgebraicZeroProblem{T, F, U, P} <: AbstractZeroProblem{T}
     name::Symbol
@@ -72,11 +73,10 @@ ap = AlgebraicProblem((u, p) -> u^3 - p, 1.5, 1)  # u0 = 1.5, p0 = 1
 push!(prob, ap)
 ```
 """
-struct AlgebraicProblem{T, Z, A} <: AbstractToolbox{T}
+struct AlgebraicProblem{T} <: AbstractToolbox{T}
     name::Symbol
-    efunc::Z
+    efunc::AlgebraicZeroProblem{T}
     mfuncs::Vector{ParameterFunction{T}}
-    allfuncs::A
 end
 
 function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=(), name=:alg)
@@ -91,10 +91,12 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     for (i, pname) in pairs(_pnames)
         push!(mfuncs, addparameter(Var(pname, 1, parent=p, offset=i-1), name=Symbol(name, :_mfunc, i)))
     end
-    allfuncs = (efunc, mfuncs...)
-    return AlgebraicProblem{T, typeof(efunc), typeof(allfuncs)}(name, efunc, mfuncs, allfuncs)
+    return AlgebraicProblem{T}(name, efunc, mfuncs)
 end
 
-getzeroproblems(alg::AlgebraicProblem) = alg.allfuncs
+AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=:alg, kwargs...) = 
+    push!(prob, AlgebraicProblem(args...; name=nextproblemname(prob, name), kwargs...))
+
+getsubproblems(alg::AlgebraicProblem) = [alg.efunc; alg.mfuncs]
 
 end # module

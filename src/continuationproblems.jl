@@ -46,7 +46,7 @@ getzeroproblem(prob::ContinuationProblem) = prob.zeroproblem
 gettoolboxes(prob::ContinuationProblem) = prob.toolboxes
 
 function Base.push!(prob::ContinuationProblem, tbx::AbstractToolbox)
-    for subprob in getzeroproblems(tbx)
+    for subprob in getsubproblems(tbx)
         push!(prob, subprob)
     end
     push!(prob.toolboxes, tbx)

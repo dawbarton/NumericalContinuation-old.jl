@@ -8,9 +8,9 @@ Continuation.
 module Coverings
 
 using ..ZeroProblems: AbstractZeroProblem, initialdata, uidx, fidx, udim, fdim,
-    jacobian_ad
+    jacobian_ad, Var
 using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
-import ..ZeroProblems: residual!, Var
+import ..ZeroProblems: residual!
 import ..NumericalContinuation: specialize, setuseroptions!
 
 using LinearAlgebra

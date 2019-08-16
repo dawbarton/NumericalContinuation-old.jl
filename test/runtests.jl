@@ -25,16 +25,16 @@ end
 @testset "Algebraic continuation (cubic)" begin
     prob = ContinuationProblem()
     f = (u, p) -> u^3 - p
-    push!(prob, AlgebraicProblem(f, 1.0, 1.0))
+    AlgebraicProblem!(prob, f, 1.0, 1.0)
     res = zeros(fdim(prob))
     residual!(res, prob, [1.5, 1.0], nothing, (nothing, Ref(1.25)))
     @test res ≈ [1.5^3-1.0, 1.0-1.25]
 end
 
 @testset "Cylinder/plane intersection" begin
-    circle = ZeroProblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0])
+    circle = ZeroProblem(u -> u[1]^2 + u[2]^2 - 1, [1, 0], name=:circle)
     @test_throws ArgumentError plane = ZeroProblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
-    plane = ZeroProblem((u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
+    plane = ZeroProblem((u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]), name=:plane)
     prob = ContinuationProblem()
     push!(prob, circle)
     push!(prob, plane)
