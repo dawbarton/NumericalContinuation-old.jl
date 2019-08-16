@@ -8,7 +8,7 @@ abstract type AbstractAtlas{T} end
 include("utilities.jl")
 
 include("ZeroProblems.jl")
-using .ZeroProblems: ExtendedZeroProblem
+using .ZeroProblems: ExtendedZeroProblem, Var
 
 include("Coverings.jl")
 using .Coverings: Atlas

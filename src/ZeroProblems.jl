@@ -1,16 +1,25 @@
 module ZeroProblems
 
-using UnsafeArrays
+using UnsafeArrays: uview
 using ..NumericalContinuation: AbstractContinuationProblem, getzeroproblem
 import ..NumericalContinuation: specialize, numtype
 
-using ForwardDiff
+import ForwardDiff
 
 #--- Exports
 
 export ExtendedZeroProblem, ZeroProblem, Var, MonitorFunction, ParameterFunction
 export residual!, fdim, udim, fidx, uidx, dependencies, addparameter, 
-    addparameter!
+    addparameter!, getvar
+
+#--- Notes
+
+# I'm not entirely happy with all the Var mess - need to work out what the
+# appropriate interface is at the ExtendedZeroProblem level. Particularly with
+# the MonitorFunctions, the line between the Var and the AbstractZeroProblem is
+# blurred but the link is one way.
+
+# What dictionaries should we have and what shouldn't be possible.
 
 #--- Forward definitions
 
@@ -258,6 +267,7 @@ mutable struct MonitorFunction{T, F} <: AbstractZeroProblem{T}
     deps::Vector{Var{T}}
     f::F
     vars::Dict{Symbol, Var{T}}
+    μ::Var{T}
     active::Bool
 end
 
@@ -269,7 +279,7 @@ function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(
     insert!(deps, 1, μ)
     vars[name] = μ
     # Construct the continuation variables
-    return MonitorFunction(name, deps, f, vars, active)
+    return MonitorFunction(name, deps, f, vars, μ, active)
 end
 MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0,), kwargs...)
 
@@ -280,6 +290,12 @@ getinitial(mfunc::MonitorFunction) = (data=Ref(mfunc.f((getinitial(u).u for u in
 function residual!(res, mfunc::MonitorFunction, data, um, u...)
     μ = isempty(um) ? data[] : um[1]
     res[1] = mfunc.f(u...) - μ
+end
+
+function setvaractive!(mfunc::MonitorFunction, active::Bool)
+    mfunc.active = active
+    mfunc.μ.len = active ? 1 : 0
+    return
 end
 
 #--- ParameterFunction - a specialized MonitorFunction for adding continuation parameters
@@ -294,19 +310,68 @@ end
 
 addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = push!(getzeroproblem(prob), addparameter(u; kwargs...))
 
+#--- VarInfo & ProblemInfo
+
+mutable struct VarInfo{T}
+    u::Var{T}
+    idx::Int64
+    deps::Set{AbstractZeroProblem{T}}
+    mfunc::Union{Nothing, MonitorFunction{T}}
+end
+VarInfo(u::Var{T}, idx::Int64) where T = VarInfo(u, idx, Set{AbstractZeroProblem{T}}(), nothing)
+getvar(info::VarInfo) = info.u
+uidx(info::VarInfo) = info.idx
+dependencies(info::VarInfo) = info.deps
+mfunc(info::VarInfo) = info.mfunc
+mfunc(prob, u::Var) = mfunc(getvarinfo(prob, u))
+
+function adddependency!(info::VarInfo, prob::AbstractZeroProblem)
+    push!(info.deps, prob)
+    if (prob isa MonitorFunction) && (prob.μ === info.u)
+        info.mfunc = prob
+    end
+    return
+end
+
+struct ProblemInfo{T}
+    prob::AbstractZeroProblem{T}
+    idx::Int64
+end
+getproblem(info::ProblemInfo) = info.prob
+fidx(info::ProblemInfo) = info.idx
+
 #--- ExtendedZeroProblem - the full problem structure
 
 struct ExtendedZeroProblem{T, D, U, Φ}
     u::U
     ui::Vector{UnitRange{Int64}}
+    udim::Base.RefValue{Int64}
+    uinfo::Vector{VarInfo{T}}
+    usym::Dict{Symbol, VarInfo{T}}
+    uvar::Dict{Var{T}, VarInfo{T}}
     ϕ::Φ
     ϕi::Vector{UnitRange{Int64}}
     ϕdeps::Vector{Tuple{Vararg{Int64, N} where N}}
-    udim::Base.RefValue{Int64}
     ϕdim::Base.RefValue{Int64}
+    ϕsym::Dict{Symbol, ProblemInfo{T}}
+    ϕprob::Dict{AbstractZeroProblem{T}, ProblemInfo{T}}
 end
 
-ExtendedZeroProblem(T=Float64) = ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroProblem{T}}}(Vector{Var{T}}(), Vector{UnitRange{Int64}}(), Vector{AbstractZeroProblem{T}}(), Vector{UnitRange{Int64}}(), Vector{Tuple{Vararg{Int64, N} where N}}(), Ref(zero(Int64)), Ref(zero(Int64)))
+ExtendedZeroProblem(T=Float64) = 
+    ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroProblem{T}}}(
+        Vector{Var{T}}(),                               # u
+        Vector{UnitRange{Int64}}(),                     # ui
+        Ref(zero(Int64)),                               # udim
+        Vector{VarInfo{T}}(),                           # uinfo
+        Dict{Symbol, VarInfo{T}}(),                     # usym
+        Dict{Var{T}, VarInfo{T}}(),                     # uvar
+        Vector{AbstractZeroProblem{T}}(),               # ϕ
+        Vector{UnitRange{Int64}}(),                     # ϕi
+        Vector{Tuple{Vararg{Int64, N} where N}}(),      # ϕdeps
+        Ref(zero(Int64)),                               # ϕdim
+        Dict{Symbol, ProblemInfo{T}}(),                 # ϕsym
+        Dict{AbstractZeroProblem{T}, ProblemInfo{T}}(), # ϕprob
+    )
 
 function ExtendedZeroProblem(probs::Vector{<: AbstractZeroProblem{T}}) where T
     zp = ExtendedZeroProblem(T)
@@ -322,8 +387,13 @@ function specialize(zp::ExtendedZeroProblem{T}) where T
     ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
     ϕi = zp.ϕi
     ϕdeps = zp.ϕdeps
-    return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, ϕ, ϕi, ϕdeps, zp.udim, zp.ϕdim)
+    return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, zp.udim, zp.uinfo, zp.usym, zp.uvar, ϕ, ϕi, ϕdeps, zp.ϕdim, zp.ϕsym, zp.ϕprob)
 end
+
+getvarinfo(zp::ExtendedZeroProblem, u::Var) = zp.uvar[u]
+getvarinfo(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
+getprobleminfo(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = zp.ϕprob[f]
+getprobleminfo(zp::ExtendedZeroProblem, f::Symbol) = zp.ϕsym[f]
 
 """
     udim(prob)
@@ -357,7 +427,7 @@ ui = uidx(prob, myvariable)  # once at the start of the continuation run (slow)
 u[uidx(prob, ui)]  # as frequently as necessary (fast)
 ```
 """
-uidx(zp::ExtendedZeroProblem, u::Var) = findfirst(isequal(u), zp.u)
+uidx(zp::ExtendedZeroProblem, u) = uidx(getvarinfo(zp, u))
 uidx(prob::AbstractContinuationProblem, x) = uidx(getzeroproblem(prob), x)
 
 """
@@ -382,7 +452,7 @@ fi = fidx(prob, myproblem)  # once at the start of the continuation run (slow)
 res[fidx(prob, fi)]  # as frequently as necessary (fast)
 ```
 """
-fidx(zp::ExtendedZeroProblem, prob::AbstractZeroProblem) = findfirst(isequal(prob), zp.ϕ)
+fidx(zp::ExtendedZeroProblem, prob) = fidx(getprobleminfo(zp, prob))
 fidx(prob::AbstractContinuationProblem, x) = fidx(getzeroproblem(prob), x)
 
 """
@@ -422,10 +492,17 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
         if (up !== nothing) && !(up in zp.u)
             throw(ArgumentError("Parent variable is not contained in the zero problem"))
         end
-        push!(zp.u, u)
+        idx = lastindex(push!(zp.u, u))
         (ui, last) = update_ui(zp, u, zp.udim[])
         push!(zp.ui, ui)
         zp.udim[] = last
+        uinfo = VarInfo(u, idx)
+        push!(zp.uinfo, uinfo)
+        if nameof(u) in keys(zp.usym)
+            @warn "Duplicate variable name in ExtendedZeroProblem" u
+        end
+        zp.usym[nameof(u)] = uinfo
+        zp.uvar[u] = uinfo
     end
     return zp
 end
@@ -450,14 +527,22 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, prob::AbstractZeroProbl
     depidx = Vector{Int64}()
     for dep in dependencies(prob)
         push!(zp, dep)
-        push!(depidx, findfirst(isequal(dep), zp.u))
+        uinfo = getvarinfo(zp, dep)
+        push!(depidx, uidx(uinfo))
+        adddependency!(uinfo, prob)
     end
-    push!(zp.ϕ, prob)
+    idx = lastindex(push!(zp.ϕ, prob))
     last = zp.ϕdim[]
     ϕdim = fdim(prob)
     push!(zp.ϕi, (last + 1):(last + ϕdim))
     zp.ϕdim[] = last + ϕdim
     push!(zp.ϕdeps, (depidx...,))
+    probinfo = ProblemInfo(prob, idx)
+    if nameof(prob) in keys(zp.ϕsym)
+        @warn "Duplicate problem name in ExtendedZeroProblem" prob
+    end
+    zp.ϕsym[nameof(prob)] = probinfo
+    zp.ϕprob[prob] = probinfo
     return zp
 end
 
@@ -554,4 +639,19 @@ function getinitial(zp::ExtendedZeroProblem{T}) where T
     return (u=u, TS=t, data=data)
 end
 
+getvar(zp::ExtendedZeroProblem, u::Symbol) = getvar(getvarinfo(zp, u))
+getvar(zp::ExtendedZeroProblem, u::Var) = u
+getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
+
+getproblem(zp::ExtendedZeroProblem, f::Symbol) = getproblem(getprobleminfo(zp, f))
+getproblem(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = f
+getproblem(prob::AbstractContinuationProblem, f) = getproblem(getzeroproblem(prob), f)
+
+function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
+    setvaractive!(mfunc(zp, u), active)
+    update_ui!(zp)
+    return
 end
+setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getzeroproblem(prob), u, active)
+
+end # module
