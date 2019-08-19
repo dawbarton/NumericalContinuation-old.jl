@@ -320,7 +320,7 @@ mutable struct VarInfo{T}
     u::Var{T}
     idx::Int64
     deps::Set{AbstractZeroProblem{T}}
-    mfunc::Union{Nothing, MonitorFunction{T}}
+    mfunc::Union{Nothing, AbstractMonitorFunction{T}}
 end
 VarInfo(u::Var{T}, idx::Int64) where T = VarInfo(u, idx, Set{AbstractZeroProblem{T}}(), nothing)
 getvar(info::VarInfo) = info.u
