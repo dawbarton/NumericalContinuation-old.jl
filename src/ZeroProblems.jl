@@ -163,7 +163,7 @@ end
 
 #--- Common helpers
 
-function _constructdeps(u0, t0)
+function constructdeps(u0, t0)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when returning
     for (u, t) in zip(pairs(u0), t0)
@@ -231,7 +231,7 @@ struct ZeroProblem{T, F} <: AbstractZeroProblem{T}
 end
 
 function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    deps, vars = _constructdeps(u0, t0)
+    deps, vars = constructdeps(u0, t0)
     # Determine whether f is in-place or not
     if inplace
         f! = f
@@ -264,6 +264,7 @@ residual!(res, zp::ZeroProblem, u...) = zp.f!(res, u...)
 abstract type AbstractMonitorFunction{T} <: AbstractZeroProblem{T} end
 
 fdim(mfunc::AbstractMonitorFunction) = 1
+passdata(mfunc::AbstractMonitorFunction) = true
 
 mutable struct MonitorFunction{T, F} <: AbstractMonitorFunction{T}
     name::Symbol
@@ -276,7 +277,7 @@ end
 
 function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(nothing), name=:mfunc, active=false)
     # Construct continuation variables as necessary
-    deps, vars = _constructdeps(u0, t0)
+    deps, vars = constructdeps(u0, t0)
     udim = active ? 1 : 0
     μ = Var(name, udim, T=numtype(first(deps))) 
     insert!(deps, 1, μ)
@@ -286,7 +287,6 @@ function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(
 end
 MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0,), kwargs...)
 
-passdata(mfunc::MonitorFunction) = true
 initialdata(mfunc::MonitorFunction) = (data=Ref(mfunc.f((initialdata(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
 isvaractive(mfunc::MonitorFunction) = mfunc.active
 getvar(mfunc::MonitorFunction) = mfunc.μ
