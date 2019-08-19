@@ -259,9 +259,13 @@ end
 
 residual!(res, zp::ZeroProblem, u...) = zp.f!(res, u...)
 
-#--- MonitorFunction
+#--- MonitorFunction & AbstractMonitorFunction
 
-mutable struct MonitorFunction{T, F} <: AbstractZeroProblem{T}
+abstract type AbstractMonitorFunction{T} <: AbstractZeroProblem{T} end
+
+fdim(mfunc::AbstractMonitorFunction) = 1
+
+mutable struct MonitorFunction{T, F} <: AbstractMonitorFunction{T}
     name::Symbol
     deps::Vector{Var{T}}
     f::F
@@ -282,9 +286,10 @@ function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(
 end
 MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0,), kwargs...)
 
-fdim(mfunc::MonitorFunction) = 1
 passdata(mfunc::MonitorFunction) = true
 initialdata(mfunc::MonitorFunction) = (data=Ref(mfunc.f((initialdata(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
+isvaractive(mfunc::MonitorFunction) = mfunc.active
+getvar(mfunc::MonitorFunction) = mfunc.μ
 
 function residual!(res, mfunc::MonitorFunction, data, um, u...)
     μ = isempty(um) ? data[] : um[1]
@@ -321,12 +326,12 @@ VarInfo(u::Var{T}, idx::Int64) where T = VarInfo(u, idx, Set{AbstractZeroProblem
 getvar(info::VarInfo) = info.u
 uidx(info::VarInfo) = info.idx
 dependencies(info::VarInfo) = info.deps
-mfunc(info::VarInfo) = info.mfunc
-mfunc(prob, u::Var) = mfunc(getvarinfo(prob, u))
+getmfunc(info::VarInfo) = info.mfunc
+getmfunc(prob, u::Var) = getmfunc(getvarinfo(prob, u))
 
 function adddependency!(info::VarInfo, prob::AbstractZeroProblem)
     push!(info.deps, prob)
-    if (prob isa MonitorFunction) && (prob.μ === info.u)
+    if (prob isa AbstractMonitorFunction) && (getvar(prob) === info.u)
         info.mfunc = prob
     end
     return
@@ -667,7 +672,7 @@ getproblem(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = f
 getproblem(prob::AbstractContinuationProblem, f) = getproblem(getzeroproblem(prob), f)
 
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
-    setvaractive!(mfunc(zp, u), active)
+    setvaractive!(getmfunc(zp, u), active)
     update_ui!(zp)
     return
 end
