@@ -10,13 +10,16 @@ include("utilities.jl")
 include("ZeroProblems.jl")
 using .ZeroProblems: ExtendedZeroProblem, Var
 
+include("ComputedFunctions.jl")
+using .ComputedFunctions: ComputedFunction
+
 include("Coverings.jl")
 using .Coverings: Atlas
 
 include("continuationproblems.jl")
 include("toolboxes.jl")
 
-include("AlgebraicProblems.jl")
+# include("AlgebraicProblems.jl")
 
 
 # Core functionality - modules
@@ -29,6 +32,6 @@ export ContinuationProblem
 export getzeroproblem, getatlas
 
 # Toolboxes
-export AlgebraicProblems
+# export AlgebraicProblems
 
 end # module

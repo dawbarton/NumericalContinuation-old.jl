@@ -7,8 +7,8 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: AbstractZeroProblem, initialdata, uidx, fidx, udim, fdim,
-    jacobian_ad, Var
+using ..ZeroProblems: ZeroProblem, initialdata, uidx, uidxrange, fidx, fidxrange, 
+    udim, fdim, jacobian_ad, Var
 using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!
 import ..NumericalContinuation: specialize, setuseroptions!
@@ -21,14 +21,11 @@ export Atlas, Chart
 
 #-------------------------------------------------------------------------------
 
-struct PrCond{T} <: AbstractZeroProblem{T}
-    name::Symbol
-    deps::Tuple{}
-    fdim::Int64
+struct PrCond{T}
     u::Vector{T}
     TS::Vector{T}
 end
-PrCond(T::DataType) = PrCond{T}(:prcond, (), 1, Vector{T}(), Vector{T}())
+PrCond(T::DataType) = PrCond{T}(Vector{T}(), Vector{T}())
 
 function residual!(res, prcond::PrCond{T}, u) where T
     res[1] = zero(T)
@@ -168,8 +165,9 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
     # Add the projection condition to the zero problem
     zp = getzeroproblem(prob)
-    push!(zp, atlas.prcond)
-    atlas.prcondidx = fidx(zp, atlas.prcond)  # store the location within the problem structure
+    prcondzp = ZeroProblem(atlas.prcond, (), T=T, name=:prcond, fdim=1, inplace=true)
+    push!(zp, prcondzp)
+    atlas.prcondidx = fidx(prcondzp)  # store the location within the problem structure (TODO: Fix this - should store the ZeroProblem!)
     atlas.contvaridx = uidx(zp, atlas.contvar)
     # Check dimensionality
     n = udim(zp)
@@ -189,7 +187,7 @@ function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
     # Set up the initial projection condition (TODO: this could be generalised for other projection conditions)
     resize!(atlas.prcond.u, n) .= initial.u
     resize!(atlas.prcond.TS, n) .= zero(T)
-    atlas.prcond.TS[uidx(zp, atlas.contvaridx)] .= one(T)
+    atlas.prcond.TS[uidxrange(zp, atlas.contvaridx)] .= one(T)
     # Determine the first state
     if atlas.options.correctinitial
         atlas.currentchart.status = :predicted
@@ -270,7 +268,7 @@ function addchart!(atlas::Atlas{T}, prob, nextstate) where T
     # Update the tangent vector
     dfdu = jacobian_ad(zp, chart.u, prob, chart.data)
     dfdp = zeros(T, length(chart.u))
-    dfdp[fidx(zp, atlas.prcondidx)] .= one(T)
+    dfdp[fidxrange(zp, atlas.prcondidx)] .= one(T) # TODO: fix this with a ref to the actual ZeroProblem
     chart.TS .= dfdu \ dfdp
     chart.t .= chart.s.*chart.TS./norm(chart.TS)
     opt = atlas.options

@@ -18,7 +18,7 @@ export residual!, fdim, udim, fidx, uidx, dependencies, addparameter,
 """
     dependencies(z)
 
-Return the variable dependencies of a zero problem as a Tuple.
+Return the variable dependencies of a zero problem.
 """
 function dependencies end
 
@@ -118,6 +118,8 @@ mutable struct Var{T}
     t0::Vector{T}
     parent::Union{Var{T}, Nothing}
     offset::Int64
+    idx::Int64
+    idxrange::UnitRange{Int64}
 end
 
 _convertvec(T, val, len) = throw(ArgumentError("Expected a number or a vector of numbers as a continuation variable"))
@@ -125,7 +127,7 @@ _convertvec(T, val::Nothing, len) = zeros(T, len)
 _convertvec(T, val::Number, len) = T[val]
 _convertvec(T, val::Vector, len) = convert(Vector{T}, val) 
 
-function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing, T=nothing)
+function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offset=0, u0=nothing, t0=nothing, T=nothing, idx=0, idxrange=0:0)
     if parent !== nothing
         if (u0 !== nothing) || (t0 !== nothing)
             throw(ArgumentError("Cannot have both a parent and u0 and/or t0"))
@@ -144,7 +146,7 @@ function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offs
     if !(length(_u0) == length(_t0) == len)
         throw(ArgumentError("u0 and/or t0 must be nothing or Vectors of length len"))
     end
-    return Var{T}(name, len, _u0, _t0, parent, offset)
+    return Var{T}(name, len, _u0, _t0, parent, offset, idx, idxrange)
 end
 
 Base.nameof(u::Var) = u.name
@@ -152,6 +154,8 @@ udim(u::Var) = u.len
 initialdata(u::Var) = (u=u.u0, TS=u.t0)
 numtype(u::Var{T}) where T = T
 Base.parent(u::Var) = u.parent
+uidx(u::Var) = u.idx
+uidxrange(u::Var) = u.idxrange
 
 function Base.show(io::IO, u::Var{T}) where T
     varname = nameof(u)
@@ -163,7 +167,7 @@ end
 
 #--- Common helpers
 
-function constructdeps(u0, t0)
+function constructdeps(u0, t0, T)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when returning
     for (u, t) in zip(pairs(u0), t0)
@@ -177,61 +181,38 @@ function constructdeps(u0, t0)
             push!(deps, u[2])
         end
     end
-    T = numtype(first(deps))
-    vars = Dict{Symbol, Var{T}}()
+    if T === nothing
+        _T = numtype(first(deps))
+    else
+        _T = T
+    end
+    vars = Dict{Symbol, Var{_T}}()
     for dep in deps
         if nameof(dep) in keys(vars)
             @warn "Duplicate variable name" dep
         end
         vars[nameof(dep)] = dep
     end
-    return (convert(Vector{Var{T}}, deps), vars)
+    return (convert(Vector{Var{_T}}, deps), vars)
 end
 
 #--- ZeroProblem
 
-# For simple problems the ZeroProblem type can be used to define a
-# problem and its associated variable dependencies.
-
-# For more complicated problems (or problems that require access to the
-# full problem structure) you should inherit from AbstractZeroProblem.
-
-abstract type AbstractZeroProblem{T} end
-
-Base.nameof(prob::AbstractZeroProblem) = prob.name
-dependencies(prob::AbstractZeroProblem) = prob.deps
-fdim(prob::AbstractZeroProblem) = prob.fdim
-initialdata(prob::AbstractZeroProblem) = (data=nothing,)
-numtype(prob::AbstractZeroProblem{T}) where T = T
-Base.getindex(prob::AbstractZeroProblem, idx::Integer) = getindex(prob.deps, idx)
-Base.getindex(prob::AbstractZeroProblem, sym::Symbol) = prob.vars[sym]
-
-function Base.show(io::IO, @nospecialize prob::AbstractZeroProblem)
-    typename = nameof(typeof(prob))
-    probname = nameof(prob)
-    neqn = fdim(prob)
-    eqn = neqn == 1 ? "1 dimension" : "$neqn dimensions"
-    nvar = length(dependencies(prob))
-    var = nvar == 1 ? "1 variable" : "$nvar variables"
-    print(io, "$typename ($probname) with $eqn and $var")
-end
-
 """
-    ZeroProblem <: AbstractZeroProblem
-
-A lightweight wrapper around a single-argument vector-valued function for
-convenience. Both in-place and not in-place functions are handled.
+    ZeroProblem{T, F}
 """
-struct ZeroProblem{T, F} <: AbstractZeroProblem{T}
+mutable struct ZeroProblem{T, F}
     name::Symbol
     deps::Vector{Var{T}}
     f!::F
     fdim::Int64
     vars::Dict{Symbol, Var{T}}
+    idx::Int64
+    idxrange::UnitRange{Int64}
 end
 
-function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    deps, vars = constructdeps(u0, t0)
+function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false, idx=0, idxrange=0:0)
+    deps, vars = constructdeps(u0, t0, T)
     # Determine whether f is in-place or not
     if inplace
         f! = f
@@ -246,7 +227,7 @@ function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repea
         end
     end
     # Construct the continuation variables
-    return ZeroProblem(name, deps, f!, fdim, vars)
+    return ZeroProblem(name, deps, f!, fdim, vars, idx, idxrange)
 end
 
 ZeroProblem(f, u0; t0=nothing, kwargs...) = ZeroProblem(f, (u0,); t0=(t0,), kwargs...)
@@ -257,11 +238,31 @@ function ZeroProblem!(prob::AbstractContinuationProblem, args...; name=:zero, kw
     return subprob
 end
 
-residual!(res, zp::ZeroProblem, u...) = zp.f!(res, u...)
+function Base.show(io::IO, @nospecialize prob::ZeroProblem)
+    typename = nameof(typeof(prob))
+    probname = nameof(prob)
+    neqn = fdim(prob)
+    eqn = neqn == 1 ? "1 dimension" : "$neqn dimensions"
+    nvar = length(dependencies(prob))
+    var = nvar == 1 ? "1 variable" : "$nvar variables"
+    print(io, "$typename ($probname) with $eqn and $var")
+end
+
+Base.nameof(prob::ZeroProblem) = prob.name
+dependencies(prob::ZeroProblem) = prob.deps
+fdim(prob::ZeroProblem) = prob.fdim
+initialdata(prob::ZeroProblem) = (data=nothing,)
+numtype(prob::ZeroProblem{T}) where T = T
+Base.getindex(prob::ZeroProblem, idx::Integer) = getindex(prob.deps, idx)
+Base.getindex(prob::ZeroProblem, sym::Symbol) = prob.vars[sym]
+fidx(prob::ZeroProblem) = prob.idx
+fidxrange(prob::ZeroProblem) = prob.idxrange
+
+residual!(res, f!, u...) = f!(res, u...)
 
 #--- MonitorFunction & AbstractMonitorFunction
 
-abstract type AbstractMonitorFunction{T} <: AbstractZeroProblem{T} end
+abstract type AbstractMonitorFunction{T} end
 
 fdim(mfunc::AbstractMonitorFunction) = 1
 passdata(mfunc::AbstractMonitorFunction) = true
@@ -314,70 +315,30 @@ end
 
 addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = push!(getzeroproblem(prob), addparameter(u; kwargs...))
 
-#--- VarInfo & ProblemInfo
-
-mutable struct VarInfo{T}
-    u::Var{T}
-    idx::Int64
-    deps::Set{AbstractZeroProblem{T}}
-    mfunc::Union{Nothing, AbstractMonitorFunction{T}}
-end
-VarInfo(u::Var{T}, idx::Int64) where T = VarInfo(u, idx, Set{AbstractZeroProblem{T}}(), nothing)
-getvar(info::VarInfo) = info.u
-uidx(info::VarInfo) = info.idx
-dependencies(info::VarInfo) = info.deps
-getmfunc(info::VarInfo) = info.mfunc
-getmfunc(prob, u::Var) = getmfunc(getvarinfo(prob, u))
-
-function adddependency!(info::VarInfo, prob::AbstractZeroProblem)
-    push!(info.deps, prob)
-    if (prob isa AbstractMonitorFunction) && (getvar(prob) === info.u)
-        info.mfunc = prob
-    end
-    return
-end
-
-struct ProblemInfo{T}
-    prob::AbstractZeroProblem{T}
-    idx::Int64
-end
-getproblem(info::ProblemInfo) = info.prob
-fidx(info::ProblemInfo) = info.idx
-
 #--- ExtendedZeroProblem - the full problem structure
 
 struct ExtendedZeroProblem{T, D, U, Φ}
     u::U
-    ui::Vector{UnitRange{Int64}}
     udim::Base.RefValue{Int64}
-    uinfo::Vector{VarInfo{T}}
-    usym::Dict{Symbol, VarInfo{T}}
-    uvar::Dict{Var{T}, VarInfo{T}}
+    usym::Dict{Symbol, Var{T}}
     ϕ::Φ
-    ϕi::Vector{UnitRange{Int64}}
     ϕdeps::Vector{Tuple{Vararg{Int64, N} where N}}
     ϕdim::Base.RefValue{Int64}
-    ϕsym::Dict{Symbol, ProblemInfo{T}}
-    ϕprob::Dict{AbstractZeroProblem{T}, ProblemInfo{T}}
+    ϕsym::Dict{Symbol, ZeroProblem{T}}
 end
 
 ExtendedZeroProblem(T=Float64) = 
-    ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{AbstractZeroProblem{T}}}(
+    ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{ZeroProblem{T}}}(
         Vector{Var{T}}(),                               # u
-        Vector{UnitRange{Int64}}(),                     # ui
         Ref(zero(Int64)),                               # udim
-        Vector{VarInfo{T}}(),                           # uinfo
-        Dict{Symbol, VarInfo{T}}(),                     # usym
-        Dict{Var{T}, VarInfo{T}}(),                     # uvar
-        Vector{AbstractZeroProblem{T}}(),               # ϕ
-        Vector{UnitRange{Int64}}(),                     # ϕi
+        Dict{Symbol, Var{T}}(),                         # usym
+        Vector{ZeroProblem{T}}(),                       # ϕ
         Vector{Tuple{Vararg{Int64, N} where N}}(),      # ϕdeps
         Ref(zero(Int64)),                               # ϕdim
-        Dict{Symbol, ProblemInfo{T}}(),                 # ϕsym
-        Dict{AbstractZeroProblem{T}, ProblemInfo{T}}(), # ϕprob
+        Dict{Symbol, ZeroProblem{T}}(),                 # ϕsym
     )
 
-function ExtendedZeroProblem(probs::Vector{<: AbstractZeroProblem{T}}) where T
+function ExtendedZeroProblem(probs::Vector{<: ZeroProblem{T}}) where T
     zp = ExtendedZeroProblem(T)
     for prob in probs
         push!(zp, prob)
@@ -387,20 +348,24 @@ end
 
 function specialize(zp::ExtendedZeroProblem{T}) where T
     u = (zp.u...,)
-    ui = zp.ui
     ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
-    ϕi = zp.ϕi
     ϕdeps = zp.ϕdeps
-    return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, ui, zp.udim, zp.uinfo, zp.usym, zp.uvar, ϕ, ϕi, ϕdeps, zp.ϕdim, zp.ϕsym, zp.ϕprob)
+    return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, zp.udim, zp.usym, ϕ, ϕdeps, zp.ϕdim, zp.ϕsym)
 end
 
-getvarinfo(zp::ExtendedZeroProblem, u::Var) = zp.uvar[u]
-getvarinfo(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
-getprobleminfo(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = zp.ϕprob[f]
-getprobleminfo(zp::ExtendedZeroProblem, f::Symbol) = zp.ϕsym[f]
+getvar(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
+getvar(zp::ExtendedZeroProblem, u::Var) = u
+getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
+getproblem(zp::ExtendedZeroProblem, f::Symbol) = zp.ϕsym[f]
+getproblem(zp::ExtendedZeroProblem, f::ZeroProblem) = f
+getproblem(prob::AbstractContinuationProblem, f) = getproblem(getzeroproblem(prob), f)
 
 hasvar(zp::ExtendedZeroProblem, u::Symbol) = u in keys(zp.usym)
+hasvar(zp::ExtendedZeroProblem, u::Var) = u in zp.u
+hasvar(prob::AbstractContinuationProblem, u) = hasvar(getzeroproblem(prob), u)
 hasproblem(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.ϕsym)
+hasproblem(zp::ExtendedZeroProblem, f::ZeroProblem) = f in zp.ϕ
+hasproblem(prob::AbstractContinuationProblem, f) = hasproblem(getzeroproblem(prob), f)
 
 function nextproblemname(zp::ExtendedZeroProblem, f::Symbol)
     if !hasproblem(zp, f)
@@ -448,22 +413,22 @@ indexing throughout the continuation run.
 
 ```
 ui = uidx(prob, myvariable)  # once at the start of the continuation run (slow)
-u[uidx(prob, ui)]  # as frequently as necessary (fast)
+u[uidxrange(prob, ui)]  # as frequently as necessary (fast)
 ```
 """
-uidx(zp::ExtendedZeroProblem, u) = uidx(getvarinfo(zp, u))
+uidx(zp::ExtendedZeroProblem, u) = uidx(getvar(zp, u))
 uidx(prob::AbstractContinuationProblem, x) = uidx(getzeroproblem(prob), x)
 
 """
-    uidx(prob, i::Integer)
+    uidxrange(prob, i::Integer)
 
 Return the index of the continuation variable within the solution vector. (May
 change during continuation, for example if adaptive meshing is used.)
 """
-uidx(zp::ExtendedZeroProblem, i::Integer) = zp.ui[i]
+uidxrange(zp::ExtendedZeroProblem, i::Integer) = uidxrange(zp.u[i])
 
 """
-    fidx(prob, prob::AbstractZeroProblem)
+    fidx(prob, prob::ZeroProblem)
 
 Return the index of the sub-problem within the internal structures. This will
 not change during continuation and so can be stored for fast indexing
@@ -473,38 +438,38 @@ throughout the continuation run.
 
 ```
 fi = fidx(prob, myproblem)  # once at the start of the continuation run (slow)
-res[fidx(prob, fi)]  # as frequently as necessary (fast)
+res[fidxrange(prob, fi)]  # as frequently as necessary (fast)
 ```
 """
-fidx(zp::ExtendedZeroProblem, prob) = fidx(getprobleminfo(zp, prob))
+fidx(zp::ExtendedZeroProblem, prob) = fidx(getproblem(zp, prob))
 fidx(prob::AbstractContinuationProblem, x) = fidx(getzeroproblem(prob), x)
 
 """
-    fidx(prob, i::Integer)
+    fidxrange(prob, i::Integer)
 
 Return the index of the sub-problem within the residual vector. (May change
 during continuation, for example if adaptive meshing is used.)
 """
-fidx(zp::ExtendedZeroProblem, i::Integer) = zp.ϕi[i]
+fidxrange(zp::ExtendedZeroProblem, i::Integer) = fidxrange(zp.ϕ[i])
 
-function update_ui(zp::ExtendedZeroProblem, u::Var, last)
+function update_uidxrange!(u::Var, zp::ExtendedZeroProblem, last::Int64)
     n = udim(u)
     if u.parent === nothing
         ui = (last + 1):(last + n)
         last += n
     else
-        idx = findfirst(isequal(u.parent), zp.u)
-        start = (u.offset < 0) ? (zp.ui[idx][end] + u.offset + 1) : (zp.ui[idx][1] + u.offset)
+        parentidx = uidxrange(u.parent)
+        start = (u.offset < 0) ? (parentidx[end] + u.offset + 1) : (parentidx[1] + u.offset)
         ui = start:(start + n - 1)
     end
-    return (ui, last)
+    u.idxrange = ui
+    return last
 end
 
-function update_ui!(zp::ExtendedZeroProblem)
+function update_uidxrange!(zp::ExtendedZeroProblem)
     last = 0
-    for i in eachindex(zp.u)
-        (ui, last) = update_ui(zp, zp.u[i], last)
-        zp.ui[i] = ui
+    for u in zp.u
+        last = update_uidxrange!(zp.u, zp, last)
     end
     zp.udim[] = last
     return zp
@@ -512,21 +477,17 @@ end
 
 function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
     if !(u in zp.u)
-        up = parent(u)
+        up = u.parent
         if (up !== nothing) && !(up in zp.u)
             throw(ArgumentError("Parent variable is not contained in the zero problem"))
         end
-        idx = lastindex(push!(zp.u, u))
-        (ui, last) = update_ui(zp, u, zp.udim[])
-        push!(zp.ui, ui)
+        u.idx = lastindex(push!(zp.u, u))
+        last = update_uidxrange!(u, zp, zp.udim[])
         zp.udim[] = last
-        uinfo = VarInfo(u, idx)
-        push!(zp.uinfo, uinfo)
         if nameof(u) in keys(zp.usym)
             @warn "Duplicate variable name in ExtendedZeroProblem" u
         end
-        zp.usym[nameof(u)] = uinfo
-        zp.uvar[u] = uinfo
+        zp.usym[nameof(u)] = u
     end
     return zp
 end
@@ -535,51 +496,48 @@ Base.push!(prob::AbstractContinuationProblem{T}, u::Var{T}) where T = push!(getz
 
 function update_ϕi!(zp::ExtendedZeroProblem)
     last = 0
-    for i in eachindex(zp.ϕ)
-        n = fdim(zp.ϕ[i])
-        zp.ϕi[i] = (last + 1):(last + n)
+    for ϕ in zp.ϕ
+        n = fdim(ϕ)
+        ϕ.idxrange = (last + 1):(last + n)
         last += n
     end
     zp.ϕdim[] = last
     return zp
 end
 
-function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, prob::AbstractZeroProblem{T}) where T
+function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, prob::ZeroProblem{T}) where T
     if prob in zp.ϕ
         throw(ArgumentError("Problem is already part of the zero problem"))
     end
     depidx = Vector{Int64}()
-    for dep in dependencies(prob)
-        push!(zp, dep)
-        uinfo = getvarinfo(zp, dep)
-        push!(depidx, uidx(uinfo))
-        adddependency!(uinfo, prob)
+    for u in dependencies(prob)
+        push!(zp, u)
+        push!(depidx, uidx(u))
     end
-    idx = lastindex(push!(zp.ϕ, prob))
     last = zp.ϕdim[]
     ϕdim = fdim(prob)
-    push!(zp.ϕi, (last + 1):(last + ϕdim))
+    prob.idx = lastindex(push!(zp.ϕ, prob))
+    prob.idxrange = (last + 1):(last + ϕdim)
     zp.ϕdim[] = last + ϕdim
     push!(zp.ϕdeps, (depidx...,))
-    probinfo = ProblemInfo(prob, idx)
     if nameof(prob) in keys(zp.ϕsym)
         @warn "Duplicate problem name in ExtendedZeroProblem" prob
     end
-    zp.ϕsym[nameof(prob)] = probinfo
-    zp.ϕprob[prob] = probinfo
+    zp.ϕsym[nameof(prob)] = prob
     return zp
 end
 
-Base.push!(prob::AbstractContinuationProblem{T}, zp::AbstractZeroProblem{T}) where T = push!(getzeroproblem(prob), zp)
+Base.push!(prob::AbstractContinuationProblem{T}, zp::ZeroProblem{T}) where T = push!(getzeroproblem(prob), zp)
 
 function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
-    uv = [uview(u, zp.ui[i]) for i in eachindex(zp.ui)]
+    uv = [uview(u, udep.idxrange) for udep in zp.u]
     for i in eachindex(zp.ϕ)
-        args = Any[uview(res, zp.ϕi[i]), zp.ϕ[i]]
-        if passproblem(zp.ϕ[i])
+        ϕ = zp.ϕ[i]
+        args = Any[uview(res, ϕ.idxrange), ϕ.f!]
+        if passproblem(ϕ.f!)
             push!(args, prob)
         end
-        if passdata(zp.ϕ[i])
+        if passdata(ϕ.f!)
             push!(args, data[i])
         end
         if length(zp.ϕdeps[i]) == 0
@@ -598,15 +556,15 @@ end
 @generated function residual!(res, zp::ExtendedZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
     body = quote
         # Construct views into u for each variable
-        uv = ($((:(uview(u, zp.ui[$i])) for i in eachindex(U.parameters))...),)
+        uv = ($((:(uview(u, zp.u[$i].idxrange)) for i in eachindex(U.parameters))...),)
     end
     # Call each of the problems
     for i in eachindex(D)
-        expr = :(residual!(uview(res, zp.ϕi[$i]), zp.ϕ[$i]))
-        if passproblem(Φ.parameters[i])
+        expr = :(residual!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i].f!))
+        if passproblem(Φ.parameters[i].parameters[2])
             push!(expr.args, :prob)
         end
-        if passdata(Φ.parameters[i])
+        if passdata(Φ.parameters[i].parameters[2])
             push!(expr.args, :(data[$i]))
         end
         if length(D[i]) == 0
@@ -653,27 +611,19 @@ function initialdata(zp::ExtendedZeroProblem{T}) where T
     ndim = udim(zp)
     u = zeros(T, ndim)
     t = zeros(T, ndim)
-    for i in eachindex(zp.u)
-        if parent(zp.u[i]) === nothing
-            u[zp.ui[i]] .= zp.u[i].u0
-            t[zp.ui[i]] .= zp.u[i].t0
+    for udep in zp.u
+        if parent(udep) === nothing
+            u[udep.idxrange] .= udep.u0
+            t[udep.idxrange] .= udep.t0
         end
     end
     data = ((initialdata(ϕ).data for ϕ in zp.ϕ)...,)
     return (u=u, TS=t, data=data)
 end
 
-getvar(zp::ExtendedZeroProblem, u::Symbol) = getvar(getvarinfo(zp, u))
-getvar(zp::ExtendedZeroProblem, u::Var) = u
-getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
-
-getproblem(zp::ExtendedZeroProblem, f::Symbol) = getproblem(getprobleminfo(zp, f))
-getproblem(zp::ExtendedZeroProblem, f::AbstractZeroProblem) = f
-getproblem(prob::AbstractContinuationProblem, f) = getproblem(getzeroproblem(prob), f)
-
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
     setvaractive!(getmfunc(zp, u), active)
-    update_ui!(zp)
+    update_uidxrange!(zp)
     return
 end
 setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getzeroproblem(prob), u, active)
