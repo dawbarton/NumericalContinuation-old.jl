@@ -8,10 +8,10 @@ import ForwardDiff
 
 #--- Exports
 
-export ExtendedZeroProblem, ZeroProblem, ZeroProblem!, Var, MonitorFunction, 
-    ParameterFunction
-export residual!, fdim, udim, fidx, uidx, dependencies, addparameter, 
-    addparameter!, getvar
+export ExtendedZeroProblem, ZeroProblem, ZeroProblem!, Var, MonitorFunction
+export residual!, fdim, udim, fidx, uidx, fidxrange, uidxrange, dependencies, 
+    addparameter, addparameter!, getvar, getproblem, hasvar, hasproblem,
+    setvaractive!, isvaractive
 
 #--- Forward definitions
 
