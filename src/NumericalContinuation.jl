@@ -19,7 +19,7 @@ using .Coverings: Atlas
 include("continuationproblems.jl")
 include("toolboxes.jl")
 
-# include("AlgebraicProblems.jl")
+include("AlgebraicProblems.jl")
 
 
 # Core functionality - modules

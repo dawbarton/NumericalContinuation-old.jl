@@ -167,12 +167,12 @@ end
 
 #--- Common helpers
 
-function constructdeps(u0, t0, T)
+function constructdeps(u0, t0, T; name)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when returning
     for (u, t) in zip(pairs(u0), t0)
         if !(u[2] isa Var)
-            varname = u[1] isa Symbol ? u[1] : Symbol(:u, u[1])
+            varname = u[1] isa Symbol ? u[1] : Symbol(name, :_u, u[1])
             if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
                 throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
             end
@@ -208,7 +208,7 @@ mutable struct ZeroProblem{T, F}
 end
 
 function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    deps, vars = constructdeps(u0, t0, T)
+    deps, vars = constructdeps(u0, t0, T, name=name)
     # Determine whether f is in-place or not
     if inplace
         f! = f
@@ -630,6 +630,7 @@ function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
     update_uidxrange!(zp)
     return
 end
+setvaractive!(zp::ExtendedZeroProblem, u::Symbol, active::Bool) = setvaractive!(zp, getvar(zp, u), active)
 setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getzeroproblem(prob), u, active)
 
 isvaractive(u) = u.len > 0

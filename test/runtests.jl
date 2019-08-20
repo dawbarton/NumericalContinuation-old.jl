@@ -25,9 +25,9 @@ end
 @testset "Algebraic continuation (cubic)" begin
     prob = ContinuationProblem()
     f = (u, p) -> u^3 - p
-    AlgebraicProblem!(prob, f, 1.0, 1.0)
+    AlgebraicProblem!(prob, f, 1.0, 1.0, pnames=[:μ])
     res = zeros(fdim(prob))
-    residual!(res, prob, [1.5, 1.0], nothing, (nothing, Ref(1.25)))
+    residual!(res, prob, [1.5, 1.0], nothing, (nothing, (Ref(1.25), nothing)))
     @test res ≈ [1.5^3-1.0, 1.0-1.25]
 end
 
