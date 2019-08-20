@@ -259,6 +259,10 @@ fidx(prob::ZeroProblem) = prob.idx
 fidxrange(prob::ZeroProblem) = prob.idxrange
 
 residual!(res, f!, u...) = f!(res, u...)
+residual!(res, prob::ZeroProblem, u...) = prob.f!(res, u...)
+
+passdata(::Type{<: ZeroProblem{T, F}}) where {T, F} = passdata(F)
+passproblem(::Type{<: ZeroProblem{T, F}}) where {T, F} = passproblem(F)
 
 #--- MonitorFunction & AbstractMonitorFunction
 
@@ -452,7 +456,7 @@ during continuation, for example if adaptive meshing is used.)
 """
 fidxrange(zp::ExtendedZeroProblem, i::Integer) = fidxrange(zp.ϕ[i])
 
-function update_uidxrange!(u::Var, zp::ExtendedZeroProblem, last::Int64)
+function update_uidxrange!(u::Var, last::Int64)
     n = udim(u)
     if u.parent === nothing
         ui = (last + 1):(last + n)
@@ -469,7 +473,7 @@ end
 function update_uidxrange!(zp::ExtendedZeroProblem)
     last = 0
     for u in zp.u
-        last = update_uidxrange!(zp.u, zp, last)
+        last = update_uidxrange!(zp.u, last)
     end
     zp.udim[] = last
     return zp
@@ -482,7 +486,7 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
             throw(ArgumentError("Parent variable is not contained in the zero problem"))
         end
         u.idx = lastindex(push!(zp.u, u))
-        last = update_uidxrange!(u, zp, zp.udim[])
+        last = update_uidxrange!(u, zp.udim[])
         zp.udim[] = last
         if nameof(u) in keys(zp.usym)
             @warn "Duplicate variable name in ExtendedZeroProblem" u
@@ -532,12 +536,11 @@ Base.push!(prob::AbstractContinuationProblem{T}, zp::ZeroProblem{T}) where T = p
 function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
     uv = [uview(u, udep.idxrange) for udep in zp.u]
     for i in eachindex(zp.ϕ)
-        ϕ = zp.ϕ[i]
-        args = Any[uview(res, ϕ.idxrange), ϕ.f!]
-        if passproblem(ϕ.f!)
+        args = Any[uview(res, zp.ϕ[i].idxrange), zp.ϕ[i]]
+        if passproblem(typeof(zp.ϕ[i]))
             push!(args, prob)
         end
-        if passdata(ϕ.f!)
+        if passdata(typeof(zp.ϕ[i]))
             push!(args, data[i])
         end
         if length(zp.ϕdeps[i]) == 0
@@ -560,11 +563,11 @@ end
     end
     # Call each of the problems
     for i in eachindex(D)
-        expr = :(residual!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i].f!))
-        if passproblem(Φ.parameters[i].parameters[2])
+        expr = :(residual!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i]))
+        if passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
         end
-        if passdata(Φ.parameters[i].parameters[2])
+        if passdata(Φ.parameters[i])
             push!(expr.args, :(data[$i]))
         end
         if length(D[i]) == 0
