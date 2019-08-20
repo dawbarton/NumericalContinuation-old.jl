@@ -90,7 +90,7 @@ function udim end
 Return the initial data (solution, tangent, toolbox data) used for initialising
 the continuation.
 """
-function initialdata end
+initialdata(prob) = nothing
 
 #--- Variables that zero problems depend on
 
@@ -181,11 +181,7 @@ function constructdeps(u0, t0, T)
             push!(deps, u[2])
         end
     end
-    if T === nothing
-        _T = numtype(first(deps))
-    else
-        _T = T
-    end
+    _T = (T === nothing) ? numtype(first(deps)) : T
     vars = Dict{Symbol, Var{_T}}()
     for dep in deps
         if nameof(dep) in keys(vars)
@@ -211,7 +207,7 @@ mutable struct ZeroProblem{T, F}
     idxrange::UnitRange{Int64}
 end
 
-function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false, idx=0, idxrange=0:0)
+function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
     deps, vars = constructdeps(u0, t0, T)
     # Determine whether f is in-place or not
     if inplace
@@ -227,7 +223,7 @@ function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iter
         end
     end
     # Construct the continuation variables
-    return ZeroProblem(name, deps, f!, fdim, vars, idx, idxrange)
+    return ZeroProblem(name, deps, f!, fdim, vars, 0, 0:0)
 end
 
 ZeroProblem(f, u0; t0=nothing, kwargs...) = ZeroProblem(f, (u0,); t0=(t0,), kwargs...)
@@ -251,70 +247,75 @@ end
 Base.nameof(prob::ZeroProblem) = prob.name
 dependencies(prob::ZeroProblem) = prob.deps
 fdim(prob::ZeroProblem) = prob.fdim
-initialdata(prob::ZeroProblem) = (data=nothing,)
+initialdata(prob::ZeroProblem) = initialdata(prob.f!)
 numtype(prob::ZeroProblem{T}) where T = T
 Base.getindex(prob::ZeroProblem, idx::Integer) = getindex(prob.deps, idx)
 Base.getindex(prob::ZeroProblem, sym::Symbol) = prob.vars[sym]
 fidx(prob::ZeroProblem) = prob.idx
 fidxrange(prob::ZeroProblem) = prob.idxrange
+getfunc(prob::ZeroProblem) = prob.f!
 
 residual!(res, f!, u...) = f!(res, u...)
-residual!(res, prob::ZeroProblem, u...) = prob.f!(res, u...)
+residual!(res, prob::ZeroProblem, u...) = residual!(res, prob.f!, u...)
 
 passdata(::Type{<: ZeroProblem{T, F}}) where {T, F} = passdata(F)
 passproblem(::Type{<: ZeroProblem{T, F}}) where {T, F} = passproblem(F)
 
-#--- MonitorFunction & AbstractMonitorFunction
+#--- MonitorFunction
 
-abstract type AbstractMonitorFunction{T} end
-
-fdim(mfunc::AbstractMonitorFunction) = 1
-passdata(mfunc::AbstractMonitorFunction) = true
-
-mutable struct MonitorFunction{T, F} <: AbstractMonitorFunction{T}
-    name::Symbol
-    deps::Vector{Var{T}}
+mutable struct MonitorFunction{T, F}
     f::F
-    vars::Dict{Symbol, Var{T}}
-    μ::Var{T}
-    active::Bool
+    u::Var{T}
 end
 
-function MonitorFunction(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(nothing), name=:mfunc, active=false)
-    # Construct continuation variables as necessary
-    deps, vars = constructdeps(u0, t0)
+function monitorfunction(f, u0::NTuple{N, Var{T}}; name=:mfunc, active=false) where {N, T}
     udim = active ? 1 : 0
-    μ = Var(name, udim, T=numtype(first(deps))) 
-    insert!(deps, 1, μ)
-    vars[name] = μ
-    # Construct the continuation variables
-    return MonitorFunction(name, deps, f, vars, μ, active)
+    u = Var(name, udim, T=T)
+    mfunc = MonitorFunction(f, u)
+    zp = ZeroProblem(mfunc, (u, u0...), name=name, fdim=1, inplace=true)
 end
-MonitorFunction(f, u0; t0=nothing, kwargs...) = MonitorFunction(f, (u0,); t0=(t0,), kwargs...)
+monitorfunction(f, u0; kwargs...) = monitorfunction(f, (u0,); kwargs...)
 
-initialdata(mfunc::MonitorFunction) = (data=Ref(mfunc.f((initialdata(u).u for u in Iterators.drop(mfunc.deps, 1))...)),)
-isvaractive(mfunc::MonitorFunction) = mfunc.active
-getvar(mfunc::MonitorFunction) = mfunc.μ
-
-function residual!(res, mfunc::MonitorFunction, data, um, u...)
-    μ = isempty(um) ? data[] : um[1]
-    res[1] = mfunc.f(u...) - μ
+function monitorfunction!(prob::AbstractContinuationProblem, args...; name=:mfunc, kwargs...)
+    subprob = monitorfunction(args...; name=nextproblemname(prob, name), kwargs...)
+    push!(prob, subprob)
+    return subprob
 end
 
-function setvaractive!(mfunc::MonitorFunction, active::Bool)
-    mfunc.active = active
-    mfunc.μ.len = active ? 1 : 0
-    return
+passdata(::Type{<: MonitorFunction}) = true
+passproblem(::Type{<: MonitorFunction}) = true
+
+function initialdata(zp::ZeroProblem{T, <: MonitorFunction}) where T
+    mfunc = getfunc(zp)
+    μ = T(mfunc.f((initialdata(u).u for u in Iterators.drop(dependencies(zp), 1))...))
+    fdata = initialdata(mfunc.f)
+    return (Ref(μ), fdata)
+end
+
+function residual!(res, mfunc::MonitorFunction, prob, data, um, u...)
+    μ = isempty(um) ? data[1][] : um[1]
+    _passdata = passdata(typeof(mfunc.f))
+    _passprob = passproblem(typeof(mfunc.f))
+    if _passdata
+        if _passprob
+            res[1] = mfunc.f(prob, data[2], u...) - μ
+        else
+            res[1] = mfunc.f(data[2], u...) - μ
+        end
+    elseif _passprob
+        res[1] = mfunc.f(prob, u...) - μ
+    else
+        res[1] = mfunc.f(u...) - μ
+    end
+    return nothing
 end
 
 #--- ParameterFunction - a specialized MonitorFunction for adding continuation parameters
 
 _identitylift(x) = x[1]
 
-const ParameterFunction{T} = MonitorFunction{T, typeof(_identitylift)}
-
 function addparameter(u::Var; name, active=false)
-    return MonitorFunction(_identitylift, (u,), name=name, active=active)
+    return monitorfunction(_identitylift, (u,), name=name, active=active)
 end
 
 addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = push!(getzeroproblem(prob), addparameter(u; kwargs...))
@@ -473,7 +474,7 @@ end
 function update_uidxrange!(zp::ExtendedZeroProblem)
     last = 0
     for u in zp.u
-        last = update_uidxrange!(zp.u, last)
+        last = update_uidxrange!(u, last)
     end
     zp.udim[] = last
     return zp
@@ -620,15 +621,17 @@ function initialdata(zp::ExtendedZeroProblem{T}) where T
             t[udep.idxrange] .= udep.t0
         end
     end
-    data = ((initialdata(ϕ).data for ϕ in zp.ϕ)...,)
+    data = ((initialdata(ϕ) for ϕ in zp.ϕ)...,)
     return (u=u, TS=t, data=data)
 end
 
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
-    setvaractive!(getmfunc(zp, u), active)
+    u.len = active ? 1 : 0
     update_uidxrange!(zp)
     return
 end
 setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getzeroproblem(prob), u, active)
+
+isvaractive(u) = u.len > 0
 
 end # module
