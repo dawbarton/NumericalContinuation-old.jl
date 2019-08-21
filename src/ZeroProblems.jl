@@ -6,6 +6,11 @@ import ..NumericalContinuation: specialize, numtype
 
 import ForwardDiff
 
+#--- Notes
+
+# Think about removing uidx and fidx since keeping a copy of the Var or
+# ZeroProblem works just as well now.
+
 #--- Exports
 
 export ExtendedZeroProblem, ZeroProblem, ZeroProblem!, Var, MonitorFunction
@@ -168,7 +173,7 @@ end
 
 #--- Common helpers
 
-function constructdeps(u0, t0, T; name)
+function constructdeps(u0, t0; name)
     # Construct continuation variables as necessary
     deps = Vector{Var}()  # abstract type - will specialize when returning
     for (u, t) in zip(pairs(u0), t0)
@@ -182,15 +187,15 @@ function constructdeps(u0, t0, T; name)
             push!(deps, u[2])
         end
     end
-    _T = (T === nothing) ? numtype(first(deps)) : T
-    vars = Dict{Symbol, Var{_T}}()
+    T = numtype(first(deps))
+    vars = Dict{Symbol, Var{T}}()
     for dep in deps
         if nameof(dep) in keys(vars)
             @warn "Duplicate variable name" dep
         end
         vars[nameof(dep)] = dep
     end
-    return (convert(Vector{Var{_T}}, deps), vars)
+    return (convert(Vector{Var{T}}, deps), vars)
 end
 
 #--- ZeroProblem
@@ -208,8 +213,8 @@ mutable struct ZeroProblem{T, F}
     idxrange::UnitRange{Int64}
 end
 
-function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; T=nothing, fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    deps, vars = constructdeps(u0, t0, T, name=name)
+function ZeroProblem(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
+    deps, vars = constructdeps(u0, t0, name=name)
     # Determine whether f is in-place or not
     if inplace
         f! = f
