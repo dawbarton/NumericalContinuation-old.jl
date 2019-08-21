@@ -70,7 +70,9 @@ struct AlgebraicProblem{T} <: AbstractToolbox{T}
     mfuncs::Vector{ZeroProblem{T}}
 end
 
-function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=nothing, name=:alg)
+const ALGEBRAICPROBLEM = :alg
+
+function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=nothing, name=ALGEBRAICPROBLEM)
     if (pnames !== nothing) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end
@@ -85,9 +87,9 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     return AlgebraicProblem{T}(name, efunc, mfuncs)
 end
 
-# TODO: don't use nextproblemname for user provided names
-function AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=:alg, kwargs...)
-    subprob = AlgebraicProblem(args...; name=nextproblemname(prob, name), kwargs...)
+function AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
+    _name = name === nothing ? nextproblemname(prob, ALGEBRAICPROBLEM) : name
+    subprob = AlgebraicProblem(args...; name=_name, kwargs...)
     push!(prob, subprob)
     return subprob
 end

@@ -265,12 +265,14 @@ passproblem(::Type{<: ZeroProblem{T, F}}) where {T, F} = passproblem(F)
 
 #--- MonitorFunction
 
+const MONITORFUNCTION = :mfunc
+
 mutable struct MonitorFunction{T, F}
     f::F
     u::Var{T}
 end
 
-function monitorfunction(f, u0::NTuple{N, Var{T}}; name=:mfunc, active=false) where {N, T}
+function monitorfunction(f, u0::NTuple{N, Var{T}}; name=MONITORFUNCTION, active=false) where {N, T}
     udim = active ? 1 : 0
     u = Var(name, udim, T=T)
     mfunc = MonitorFunction(f, u)
@@ -278,8 +280,9 @@ function monitorfunction(f, u0::NTuple{N, Var{T}}; name=:mfunc, active=false) wh
 end
 monitorfunction(f, u0; kwargs...) = monitorfunction(f, (u0,); kwargs...)
 
-function monitorfunction!(prob::AbstractContinuationProblem, args...; name=:mfunc, kwargs...)
-    subprob = monitorfunction(args...; name=nextproblemname(prob, name), kwargs...)
+function monitorfunction!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
+    _name = name === nothing ? nextproblemname(prob, MONITORFUNCTION) : name
+    subprob = monitorfunction(args...; name=_name, kwargs...)
     push!(prob, subprob)
     return subprob
 end
