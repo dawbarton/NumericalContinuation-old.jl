@@ -158,11 +158,12 @@ uidx(u::Var) = u.idx
 uidxrange(u::Var) = u.idxrange
 
 function Base.show(io::IO, u::Var{T}) where T
-    varname = nameof(u)
-    typename = nameof(T)
-    n = udim(u)
-    el = n == 1 ? "1 element" : "$n elements"
-    print(io, "Variable ($varname) with $el ($typename)")
+    _T = T === Float64 ? "" : "{$(nameof(T))}"
+    name = nameof(u) === Symbol("") ? "UNNAMED" : ":$(nameof(u))"
+    child = u.parent === nothing ? "" : ", parent=$(nameof(u.parent) === Symbol("") ? "UNNAMED" : ":$(nameof(u.parent))")"
+    dim = ", $(u.len)"
+    print(io, "Var$_T($name$dim$child)")
+    return
 end
 
 #--- Common helpers
@@ -234,14 +235,10 @@ function ZeroProblem!(prob::AbstractContinuationProblem, args...; name=:zero, kw
     return subprob
 end
 
-function Base.show(io::IO, @nospecialize prob::ZeroProblem)
-    typename = nameof(typeof(prob))
-    probname = nameof(prob)
-    neqn = fdim(prob)
-    eqn = neqn == 1 ? "1 dimension" : "$neqn dimensions"
-    nvar = length(dependencies(prob))
-    var = nvar == 1 ? "1 variable" : "$nvar variables"
-    print(io, "$typename ($probname) with $eqn and $var")
+function Base.show(io::IO, @nospecialize prob::ZeroProblem{T, F}) where {T, F}
+    _T = T === Float64 ? "" : "$(nameof(T)), "
+    name = nameof(prob) === Symbol("") ? "UNNAMED" : ":$(nameof(prob))"
+    print(io, "ZeroProblem{$_T$(nameof(F))}($name, $(fdim(prob)))")
 end
 
 Base.nameof(prob::ZeroProblem) = prob.name
