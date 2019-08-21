@@ -489,10 +489,13 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
         u.idx = lastindex(push!(zp.u, u))
         last = update_uidxrange!(u, zp.udim[])
         zp.udim[] = last
-        if nameof(u) in keys(zp.usym)
-            @warn "Duplicate variable name in ExtendedZeroProblem" u
+        name = nameof(u)
+        if (name !== Symbol(""))
+            if name in keys(zp.usym)
+                @warn "Duplicate variable name in ExtendedZeroProblem" u
+            end
+            zp.usym[name] = u
         end
-        zp.usym[nameof(u)] = u
     end
     return zp
 end
@@ -525,10 +528,13 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, prob::ZeroProblem{T}) w
     prob.idxrange = (last + 1):(last + ϕdim)
     zp.ϕdim[] = last + ϕdim
     push!(zp.ϕdeps, (depidx...,))
-    if nameof(prob) in keys(zp.ϕsym)
-        @warn "Duplicate problem name in ExtendedZeroProblem" prob
+    name = nameof(prob)
+    if name !== Symbol("")
+        if name in keys(zp.ϕsym)
+            @warn "Duplicate problem name in ExtendedZeroProblem" prob
+        end
+        zp.ϕsym[name] = prob
     end
-    zp.ϕsym[nameof(prob)] = prob
     return zp
 end
 
