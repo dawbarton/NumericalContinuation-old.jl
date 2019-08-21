@@ -31,15 +31,10 @@ function algebraiczeroproblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union
     else
         f! = (res, u, p) -> res .= f(u, p)
     end
-    # Construct the continuation variables
-    u = Var(Symbol(name, "_", :u), length(u0), u0=u0)
-    p = Var(Symbol(name, "_", :p), length(p0), u0=p0)
-    # Helpers
-    T = numtype(u)
-    U = u0 isa Vector ? Vector{T} : T
-    P = p0 isa Vector ? Vector{T} : T
+    U = u0 isa Vector ? Vector : Number  # give the user provided function the input expected
+    P = p0 isa Vector ? Vector : Number
     alg = AlgebraicZeroProblem{typeof(f!), U, P}(f!)
-    return ZeroProblem(alg, (u, p), fdim=length(u0), inplace=true, name=name)
+    return ZeroProblem(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
 end
 
 _convertto(T, val) = val
@@ -90,6 +85,7 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     return AlgebraicProblem{T}(name, efunc, mfuncs)
 end
 
+# TODO: don't use nextproblemname for user provided names
 function AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=:alg, kwargs...)
     subprob = AlgebraicProblem(args...; name=nextproblemname(prob, name), kwargs...)
     push!(prob, subprob)
