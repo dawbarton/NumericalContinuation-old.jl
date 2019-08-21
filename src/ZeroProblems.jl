@@ -329,8 +329,8 @@ struct ExtendedZeroProblem{T, D, U, Φ}
     ϕsym::Dict{Symbol, ZeroProblem{T}}
 end
 
-ExtendedZeroProblem(T=Float64) = 
-    ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{ZeroProblem{T}}}(
+function ExtendedZeroProblem(T=Float64) 
+    prob = ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{ZeroProblem{T}}}(
         Vector{Var{T}}(),                               # u
         Ref(zero(Int64)),                               # udim
         Dict{Symbol, Var{T}}(),                         # usym
@@ -339,6 +339,9 @@ ExtendedZeroProblem(T=Float64) =
         Ref(zero(Int64)),                               # ϕdim
         Dict{Symbol, ZeroProblem{T}}(),                 # ϕsym
     )
+    push!(prob, Var(:allvars, 0, T=T))
+    return prob
+end
 
 function ExtendedZeroProblem(probs::Vector{<: ZeroProblem{T}}) where T
     zp = ExtendedZeroProblem(T)
@@ -474,6 +477,7 @@ function update_uidxrange!(zp::ExtendedZeroProblem)
         last = update_uidxrange!(u, last)
     end
     zp.udim[] = last
+    zp.u[1].idxrange = 1:last
     return zp
 end
 
@@ -486,6 +490,7 @@ function Base.push!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
         u.idx = lastindex(push!(zp.u, u))
         last = update_uidxrange!(u, zp.udim[])
         zp.udim[] = last
+        zp.u[1].idxrange = 1:last
         name = nameof(u)
         if (name !== Symbol(""))
             if name in keys(zp.usym)
@@ -547,13 +552,8 @@ function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, da
         if passdata(typeof(zp.ϕ[i]))
             push!(args, data[i])
         end
-        if length(zp.ϕdeps[i]) == 0
-            # No dependencies means pass everything
-            push!(args, u)
-        else
-            for dep in zp.ϕdeps[i]
-                push!(args, uv[dep])
-            end
+        for dep in zp.ϕdeps[i]
+            push!(args, uv[dep])
         end
         residual!(args...)
     end
@@ -574,13 +574,8 @@ end
         if passdata(Φ.parameters[i])
             push!(expr.args, :(data[$i]))
         end
-        if length(D[i]) == 0
-            # No dependencies means pass everything
-            push!(expr.args, :u)
-        else
-            for j in eachindex(D[i])
-                push!(expr.args, :(uv[$(D[i][j])]))
-            end
+        for j in eachindex(D[i])
+            push!(expr.args, :(uv[$(D[i][j])]))
         end
         push!(body.args, expr)
     end
@@ -618,7 +613,7 @@ function initialdata(zp::ExtendedZeroProblem{T}) where T
     ndim = udim(zp)
     u = zeros(T, ndim)
     t = zeros(T, ndim)
-    for udep in zp.u
+    for udep in Iterators.drop(zp.u, 1)  # First var is :allvars
         if parent(udep) === nothing
             u[udep.idxrange] .= udep.u0
             t[udep.idxrange] .= udep.t0

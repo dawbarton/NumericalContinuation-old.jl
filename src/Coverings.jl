@@ -7,8 +7,8 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: ZeroProblem, initialdata, uidx, uidxrange, fidx, fidxrange, 
-    udim, fdim, jacobian_ad, Var
+using ..ZeroProblems: monitorfunction, initialdata, uidx, uidxrange, fidx, fidxrange, 
+    udim, fdim, jacobian_ad, Var, getvar
 using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
 import ..ZeroProblems: residual!
 import ..NumericalContinuation: specialize, setuseroptions!
@@ -27,10 +27,10 @@ struct PrCond{T}
 end
 PrCond(T::Type) = PrCond{T}(Vector{T}(), Vector{T}())
 
-function residual!(res, prcond::PrCond{T}, u) where T
-    res[1] = zero(T)
+function (prcond::PrCond{T})(u) where T
+    res = zero(T)
     for i in eachindex(prcond.u)
-        res[1] += prcond.TS[i]*(u[i] - prcond.u[i])
+        res += prcond.TS[i]*(u[i] - prcond.u[i])
     end
     return res
 end
@@ -165,7 +165,7 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
     # Add the projection condition to the zero problem
     zp = getzeroproblem(prob)
-    prcondzp = ZeroProblem(atlas.prcond, (), T=T, name=:prcond, fdim=1, inplace=true)
+    prcondzp = monitorfunction(atlas.prcond, getvar(prob, :allvars), name=:prcond)
     push!(zp, prcondzp)
     atlas.prcondidx = fidx(prcondzp)  # store the location within the problem structure (TODO: Fix this - should store the ZeroProblem!)
     atlas.contvaridx = uidx(zp, atlas.contvar)
