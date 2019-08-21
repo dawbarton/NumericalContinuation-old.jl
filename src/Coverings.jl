@@ -25,7 +25,7 @@ struct PrCond{T}
     u::Vector{T}
     TS::Vector{T}
 end
-PrCond(T::DataType) = PrCond{T}(Vector{T}(), Vector{T}())
+PrCond(T::Type) = PrCond{T}(Vector{T}(), Vector{T}())
 
 function residual!(res, prcond::PrCond{T}, u) where T
     res[1] = zero(T)
@@ -50,7 +50,7 @@ Base.@kwdef mutable struct Chart{T, D <: Tuple}
     R::T
     data::D = ()
 end
-Chart(T::DataType) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), t=Vector{T}(), R=zero(T))
+Chart(T::Type) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), t=Vector{T}(), R=zero(T))
 
 # specialize(chart::Chart) = chart
 specialize(chart::Chart) = Chart(pt=chart.pt, pt_type=chart.pt_type, ep_flag=chart.ep_flag, 
@@ -71,7 +71,7 @@ Base.@kwdef mutable struct AtlasOptions{T}
     ga::T = T(0.95)  # adaptation security factor
     maxiter::Int64 = 100
 end
-AtlasOptions(T::DataType) = AtlasOptions{T}()
+AtlasOptions(T::Type) = AtlasOptions{T}()
 
 #-------------------------------------------------------------------------------
 
@@ -86,7 +86,7 @@ mutable struct Atlas{T, D} <: AbstractAtlas{T}
     options::AtlasOptions{T}
 end
 
-function Atlas(T::DataType)
+function Atlas(T::Type)
     D = Tuple
     charts = Vector{Chart{T, D}}()
     currentchart = Chart(T)

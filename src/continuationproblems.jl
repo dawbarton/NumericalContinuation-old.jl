@@ -27,7 +27,7 @@ mutable struct ContinuationProblem{T} <: AbstractContinuationProblem{T}
     contpars::Vector{Var{T}}
 end
 
-function ContinuationProblem(T::DataType=Float64)
+function ContinuationProblem(T::Type=Float64)
     options = Dict{Symbol, Dict{Symbol, Any}}()
     atlas = Atlas(T)
     zeroproblem = ExtendedZeroProblem(T)
