@@ -83,11 +83,9 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     T = numtype(efunc)
     p = efunc[2]  # parameter vector
     mfuncs = Vector{ZeroProblem{T}}()
-    _pnames = pnames === nothing ? map(i -> Symbol(name, :_p, i), 1:length(p0)) : pnames
+    _pnames = pnames === nothing ? [Symbol(name, :_p, i) for i in 1:length(p0)] : pnames
     for i in eachindex(_pnames)
-        pname = _pnames[i]
-        vname = Symbol(name, :_mu, i)
-        push!(mfuncs, addparameter(Var(vname, 1, parent=p, offset=i-1), name=pname))
+        push!(mfuncs, addparameter(Var(Symbol(""), 1, parent=p, offset=i-1), name=_pnames[i]))
     end
     return AlgebraicProblem{T}(name, efunc, mfuncs)
 end
