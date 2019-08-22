@@ -366,6 +366,16 @@ function specialize(zp::ExtendedZeroProblem{T}) where T
     return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, zp.udim, zp.usym, ϕ, ϕdeps, zp.ϕdim, zp.ϕsym)
 end
 
+function Base.show(io::IO, zp::ExtendedZeroProblem{T}) where T
+    print(io, "ExtendedZeroProblem")
+    (T !== Float64) && print(io, "{$T}")
+    print(io, "([")
+    print(io, join(["$u" for u in zp.u], ", "))
+    print(io, "], [")
+    print(io, join(["$ϕ" for ϕ in zp.ϕ], ", "))
+    print(io, "])")
+end
+
 getvar(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
 getvar(zp::ExtendedZeroProblem, u::Var) = u
 getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
