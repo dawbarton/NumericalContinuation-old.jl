@@ -369,9 +369,9 @@ end
 function Base.show(io::IO, zp::ExtendedZeroProblem{T}) where T
     print(io, "ExtendedZeroProblem")
     (T !== Float64) && print(io, "{$T}")
-    print(io, "([")
+    print(io, "(Var[")
     print(io, join(["$u" for u in zp.u], ", "))
-    print(io, "], [")
+    print(io, "], ZeroProblem[")
     print(io, join(["$ϕ" for ϕ in zp.ϕ], ", "))
     print(io, "])")
 end
