@@ -129,7 +129,7 @@ function solve!(prob::ContinuationProblem{T}, contpars::Union{Tuple, AbstractVec
         prob.atlas = prob.atlas(prob, vars[1])  # the first continuation variable is the primary one
     end
     # Specialize as necessary
-    #specialize!(prob)
+    specialize!(prob)
     # Do the continuation
     return prob.atlas(prob)
 end
