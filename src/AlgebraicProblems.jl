@@ -13,7 +13,7 @@ module AlgebraicProblems
 using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
 import ..NumericalContinuation: getsubproblems
 using ..ZeroProblems: Var, ComputedFunction, zeroproblem, addparameter, nextproblemname
-import ..ZeroProblems: residual!
+import ..ZeroProblems: evaluate!
 
 export AlgebraicProblem, AlgebraicProblem!
 
@@ -40,7 +40,7 @@ end
 _convertto(T, val) = val
 _convertto(::Type{T}, val) where {T <: Number} = val[1]
 
-residual!(res, ap::AlgebraicZeroProblem{<:Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
+evaluate!(res, ap::AlgebraicZeroProblem{<:Any, U, P}, u, p) where {U, P} = ap.f!(res, _convertto(U, u), _convertto(P, p))
 
 """
     AlgebraicProblem <: AbstractToolbox

@@ -8,7 +8,7 @@ Continuation.
 module Coverings
 
 using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction!, 
-    initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, residual!
+    initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate!
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
     getoption, getzeroproblem
 
@@ -219,7 +219,7 @@ function correct!(atlas::Atlas, prob, nextstate)
     # Solve zero problem
     zp = getzeroproblem(prob)
     chart = atlas.currentchart
-    sol = nlsolve((res, u) -> residual!(res, zp, u, prob, chart.data), chart.u)
+    sol = nlsolve((res, u) -> evaluate!(res, zp, u, prob, chart.data), chart.u)
     if converged(sol)
         chart.u .= sol.zero
         chart.status = :corrected

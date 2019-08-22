@@ -9,7 +9,7 @@ import ForwardDiff
 #--- Exports
 
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction
-export residual!, fdim, udim, fidxrange, uidxrange, dependencies, addparameter, 
+export evaluate!, fdim, udim, fidxrange, uidxrange, dependencies, addparameter, 
     addparameter!, getvar, getproblem, hasvar, hasproblem, setvaractive!, 
     isvaractive, zeroproblem, zeroproblem!, monitorfunction, monitorfunction!
 
@@ -62,13 +62,13 @@ passdata(z::Type{Collocation}) = true
 passdata(z) = false
 
 """
-    residual!(res, [J], z, u, [prob])
+    evaluate!(res, [J], z, u, [prob])
 
 Return the residual (inplace), and optionally the Jacobian, of the ExtendedZeroProblem
 z with the input u. Some ExtendedZeroProblems also require the problem structure
 `prob` to be passed.
 """
-function residual! end
+function evaluate! end
 
 """
     fdim(f)
@@ -266,8 +266,8 @@ fidx(prob::ComputedFunction) = prob.idx
 fidxrange(prob::ComputedFunction) = prob.idxrange
 getfunc(prob::ComputedFunction) = prob.f!
 
-residual!(res, f!, u...) = f!(res, u...)
-residual!(res, prob::ComputedFunction, u...) = residual!(res, prob.f!, u...)
+evaluate!(res, f!, u...) = f!(res, u...)
+evaluate!(res, prob::ComputedFunction, u...) = evaluate!(res, prob.f!, u...)
 
 passdata(::Type{<: ComputedFunction{T, F}}) where {T, F} = passdata(F)
 passproblem(::Type{<: ComputedFunction{T, F}}) where {T, F} = passproblem(F)
@@ -307,7 +307,7 @@ function initialdata(zp::ComputedFunction{T, <: MonitorFunction}) where T
     return (Ref(μ), fdata)
 end
 
-function residual!(res, mfunc::MonitorFunction, prob, data, um, u...)
+function evaluate!(res, mfunc::MonitorFunction, prob, data, um, u...)
     μ = isempty(um) ? data[1][] : um[1]
     _passdata = passdata(typeof(mfunc.f))
     _passprob = passproblem(typeof(mfunc.f))
@@ -536,7 +536,7 @@ end
 
 Base.push!(prob::AbstractContinuationProblem{T}, zp::ComputedFunction{T}) where T = push!(getzeroproblem(prob), zp)
 
-function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
+function evaluate!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
     uv = [uview(u, udep.idxrange) for udep in zp.u]
     for i in eachindex(zp.ϕ)
         args = Any[uview(res, zp.ϕ[i].idxrange), zp.ϕ[i]]
@@ -549,19 +549,19 @@ function residual!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, da
         for dep in zp.ϕdeps[i]
             push!(args, uv[dep])
         end
-        residual!(args...)
+        evaluate!(args...)
     end
     return res
 end
 
-@generated function residual!(res, zp::ExtendedZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
+@generated function evaluate!(res, zp::ExtendedZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
     body = quote
         # Construct views into u for each variable
         uv = ($((:(uview(u, zp.u[$i].idxrange)) for i in eachindex(U.parameters))...),)
     end
     # Call each of the problems
     for i in eachindex(D)
-        expr = :(residual!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i]))
+        expr = :(evaluate!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i]))
         if passproblem(Φ.parameters[i])
             push!(expr.args, :prob)
         end
@@ -579,18 +579,18 @@ end
     body
 end
 
-residual!(res, prob::AbstractContinuationProblem, u, args...) = residual!(res, getzeroproblem(prob), u, args...)
+evaluate!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob), u, args...)
 
 function jacobian!(J, zp::ExtendedZeroProblem{T}, u, args...) where T
     # A simple forward difference
     ϵ = T(1e-6)
     @assert size(J, 1) == size(J, 2) == length(u)
     res = zeros(T, length(u))
-    residual!(res, zp, u, args...)
+    evaluate!(res, zp, u, args...)
     for i in eachindex(u)
         uu = u[i]
         u[i] += ϵ
-        residual!(uview(J, :, i), zp, u, args...)
+        evaluate!(uview(J, :, i), zp, u, args...)
         for j in eachindex(u)
             J[j, i] = (J[j, i] - res[j])/ϵ
         end
@@ -600,7 +600,7 @@ function jacobian!(J, zp::ExtendedZeroProblem{T}, u, args...) where T
 end
 
 function jacobian_ad(zp::ExtendedZeroProblem, u, args...) 
-    ForwardDiff.jacobian((res, u)->residual!(res, zp, u, args...), zeros(size(u)), u)
+    ForwardDiff.jacobian((res, u)->evaluate!(res, zp, u, args...), zeros(size(u)), u)
 end
 
 function initialdata(zp::ExtendedZeroProblem{T}) where T

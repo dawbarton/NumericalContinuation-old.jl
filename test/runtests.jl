@@ -11,13 +11,13 @@ using NLsolve
     res = zeros(1)
     f = u -> u[1]^3 - u[2]
     sp = zeroproblem(f, [1.0, 1.0], t0=[0, 0])
-    residual!(res, sp, [1.5, 1.0])
+    evaluate!(res, sp, [1.5, 1.0])
     @test res[1] ≈ 2.375
     f! = (res, u) -> (res[1] = u[1]^3 - u[2])
     @test_throws ArgumentError zeroproblem(f!, [1.0, 1.0], inplace=true)
     sp2 = zeroproblem(f!, [1.0, 1.0], fdim=1, inplace=true)
     res[1] = 0.0
-    residual!(res, sp, [1.5, 1.0])
+    evaluate!(res, sp, [1.5, 1.0])
     @test res[1] ≈ 2.375
     @test_throws ArgumentError zeroproblem(f!, [1.0, 1.0], t0=[1], fdim=1, inplace=true)
 end
@@ -28,7 +28,7 @@ end
     AlgebraicProblem!(prob, f, 1.5, 1.0, pnames=[:μ])
     res = zeros(fdim(prob))
     data = ZeroProblems.initialdata(getzeroproblem(prob))
-    residual!(res, prob, data.u, prob, data.data)
+    evaluate!(res, prob, data.u, prob, data.data)
     @test res ≈ [1.5^3-1.0, 0.0]
 end
 
@@ -40,12 +40,12 @@ end
     @test udim(prob) == 3
     @test fdim(prob) == 2
     res0 = zeros(2)
-    residual!(res0, prob, [0.1, 0.2, 0.3])
+    evaluate!(res0, prob, [0.1, 0.2, 0.3])
     @test res0 ≈ [-0.95, 0.6]
     solve!(prob, plane[2])
     # prob will now have been specialized; but extra monitor vars have been added so extra data is needed
     res = zeros(fdim(prob))
-    residual!(res, prob, [0.1, 0.2, 0.3], prob, prob.atlas.charts[end].data)
+    evaluate!(res, prob, [0.1, 0.2, 0.3], prob, prob.atlas.charts[end].data)
     @test res[1:2] ≈ [-0.95, 0.6]
     u = [c.u for c in prob.atlas.charts]
     ux = [u[1] for u in u]

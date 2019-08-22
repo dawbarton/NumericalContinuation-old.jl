@@ -29,6 +29,6 @@ export ContinuationProblem
 export getvar, getzeroproblem, getatlas, udim, fdim, solve!, setoption!, getoption
 
 # Toolboxes
-# export AlgebraicProblems
+export AlgebraicProblems
 
 end # module
