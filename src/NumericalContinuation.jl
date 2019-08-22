@@ -10,9 +10,6 @@ include("utilities.jl")
 include("ZeroProblems.jl")
 using .ZeroProblems
 
-include("ComputedFunctions.jl")
-using .ComputedFunctions
-
 include("Coverings.jl")
 using .Coverings
 
