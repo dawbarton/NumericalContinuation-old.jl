@@ -7,19 +7,19 @@ using NumericalContinuation.AlgebraicProblems
 
 using NLsolve
 
-@testset "ComputedFunction specification (cubic)" begin
+@testset "zeroproblem specification (cubic)" begin
     res = zeros(1)
     f = u -> u[1]^3 - u[2]
-    sp = ComputedFunction(f, [1.0, 1.0], t0=[0, 0])
+    sp = zeroproblem(f, [1.0, 1.0], t0=[0, 0])
     residual!(res, sp, [1.5, 1.0])
     @test res[1] ≈ 2.375
     f! = (res, u) -> (res[1] = u[1]^3 - u[2])
-    @test_throws ArgumentError ComputedFunction(f!, [1.0, 1.0], inplace=true)
-    sp2 = ComputedFunction(f!, [1.0, 1.0], fdim=1, inplace=true)
+    @test_throws ArgumentError zeroproblem(f!, [1.0, 1.0], inplace=true)
+    sp2 = zeroproblem(f!, [1.0, 1.0], fdim=1, inplace=true)
     res[1] = 0.0
     residual!(res, sp, [1.5, 1.0])
     @test res[1] ≈ 2.375
-    @test_throws ArgumentError ComputedFunction(f!, [1.0, 1.0], t0=[1], fdim=1, inplace=true)
+    @test_throws ArgumentError zeroproblem(f!, [1.0, 1.0], t0=[1], fdim=1, inplace=true)
 end
 
 @testset "Algebraic continuation (cubic)" begin
@@ -34,9 +34,9 @@ end
 
 @testset "Cylinder/plane intersection" begin
     prob = ContinuationProblem()
-    circle = ComputedFunction!(prob, u -> u[1]^2 + u[2]^2 - 1, [1, 0])
-    @test_throws ArgumentError plane = ComputedFunction((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
-    plane = ComputedFunction!(prob, (u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
+    circle = zeroproblem!(prob, u -> u[1]^2 + u[2]^2 - 1, [1, 0])
+    @test_throws ArgumentError plane = zeroproblem((u, z) -> u[1] + u[2] + z[1], (circle, [-1]))
+    plane = zeroproblem!(prob, (u, z) -> u[1] + u[2] + z[1], (circle[1], [-1]))
     @test udim(prob) == 3
     @test fdim(prob) == 2
     res0 = zeros(2)

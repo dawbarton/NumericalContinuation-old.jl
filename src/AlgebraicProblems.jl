@@ -12,7 +12,7 @@ module AlgebraicProblems
 
 using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
 import ..NumericalContinuation: getsubproblems
-using ..ZeroProblems: Var, ComputedFunction, addparameter, nextproblemname
+using ..ZeroProblems: Var, ComputedFunction, zeroproblem, addparameter, nextproblemname
 import ..ZeroProblems: residual!
 
 export AlgebraicProblem, AlgebraicProblem!
@@ -34,7 +34,7 @@ function algebraiczeroproblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union
     U = u0 isa Vector ? Vector : Number  # give the user provided function the input expected
     P = p0 isa Vector ? Vector : Number
     alg = AlgebraicZeroProblem{typeof(f!), U, P}(f!)
-    return ComputedFunction(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
+    return zeroproblem(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
 end
 
 _convertto(T, val) = val

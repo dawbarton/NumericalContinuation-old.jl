@@ -9,9 +9,9 @@ import ForwardDiff
 #--- Exports
 
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction
-export residual!, fdim, udim, fidxrange, uidxrange, dependencies, 
-    addparameter, addparameter!, getvar, getproblem, hasvar, hasproblem,
-    setvaractive!, isvaractive
+export residual!, fdim, udim, fidxrange, uidxrange, dependencies, addparameter, 
+    addparameter!, getvar, getproblem, hasvar, hasproblem, setvaractive!, 
+    isvaractive, zeroproblem, zeroproblem!, monitorfunction, monitorfunction!
 
 #--- Forward definitions
 
@@ -170,33 +170,6 @@ function Base.show(io::IO, u::Var{T}) where T
     return
 end
 
-#--- Common helpers
-
-function constructdeps(u0, t0; name)
-    # Construct continuation variables as necessary
-    deps = Vector{Var}()  # abstract type - will specialize when returning
-    for (u, t) in zip(pairs(u0), t0)
-        if !(u[2] isa Var)
-            varname = u[1] isa Symbol ? u[1] : Symbol(name, :_u, u[1])
-            if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
-                throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
-            end
-            push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
-        else
-            push!(deps, u[2])
-        end
-    end
-    T = numtype(first(deps))
-    vars = Dict{Symbol, Var{T}}()
-    for dep in deps
-        if nameof(dep) in keys(vars)
-            @warn "Duplicate variable name" dep
-        end
-        vars[nameof(dep)] = dep
-    end
-    return (convert(Vector{Var{T}}, deps), vars)
-end
-
 #--- ComputedFunction
 
 """
@@ -212,8 +185,16 @@ mutable struct ComputedFunction{T, F}
     idxrange::UnitRange{Int64}
 end
 
-function ComputedFunction(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.repeated(nothing), name=:zero, inplace=false)
-    deps, vars = constructdeps(u0, t0, name=name)
+const COMPUTEDFUNCTION = :computed
+
+function ComputedFunction(f, u0::NTuple{N, Var{T}}; name=COMPUTEDFUNCTION, fdim=0, inplace=false) where {N, T}
+    vars = Dict{Symbol, Var{T}}()
+    for u in u0
+        if nameof(u) in keys(vars)
+            @warn "Duplicate variable name" u
+        end
+        vars[nameof(u)] = u
+    end
     # Determine whether f is in-place or not
     if inplace
         f! = f
@@ -223,18 +204,47 @@ function ComputedFunction(f, u0::Union{Tuple, NamedTuple}; fdim=0, t0=Iterators.
     else
         f! = (res, u...) -> res .= f(u...)
         if fdim == 0
-            res = f((initialdata(u).u for u in deps)...)
+            res = f((initialdata(u).u for u in u0)...)
             fdim = length(res)
         end
     end
     # Construct the continuation variables
-    return ComputedFunction(name, deps, f!, fdim, vars, 0, 0:0)
+    return ComputedFunction(name, [u for u in u0], f!, fdim, vars, 0, 0:0)
 end
 
-ComputedFunction(f, u0; t0=nothing, kwargs...) = ComputedFunction(f, (u0,); t0=(t0,), kwargs...)
+ComputedFunction(f, u0::Var; kwargs...) = ComputedFunction(f, (u0,); kwargs...)
 
-function ComputedFunction!(prob::AbstractContinuationProblem, args...; name=:zero, kwargs...)
-    subprob = ComputedFunction(args...; name=nextproblemname(prob, name), kwargs...)
+function ComputedFunction!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
+    _name = name === nothing ? nextproblemname(prob, COMPUTEDFUNCTION) : name
+    subprob = ComputedFunction(args...; name=_name, kwargs...)
+    push!(prob, subprob)
+    return subprob
+end
+
+const ZEROPROBLEM = :zero
+
+function zeroproblem(f, u0::Union{Tuple, NamedTuple}; t0=Iterators.repeated(nothing), name=ZEROPROBLEM, kwargs...)
+    # Construct continuation variables as necessary - zeroproblems can create new states
+    deps = Vector{Var}()  # abstract type - will specialize later
+    for (u, t) in zip(pairs(u0), t0)
+        if !(u[2] isa Var)
+            varname = u[1] isa Symbol ? u[1] : Symbol(name, :_u, u[1])
+            if !((u[2] isa Number) || (u[2] isa Vector{<: Number}))
+                throw(ArgumentError("Expected a number, a vector of numbers, or an existing continuation variable but got a $(typeof(u[2]))"))
+            end
+            push!(deps, Var(varname, length(u[2]), u0=u[2], t0=t))
+        else
+            push!(deps, u[2])
+        end
+    end
+    return ComputedFunction(f, (deps..., ); name=name, kwargs...)
+end
+
+zeroproblem(f, u0; t0=nothing, kwargs...) = zeroproblem(f, (u0,); t0=(t0,), kwargs...)
+
+function zeroproblem!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
+    _name = name === nothing ? nextproblemname(prob, ZEROPROBLEM) : name
+    subprob = zeroproblem(args...; name=_name, kwargs...)
     push!(prob, subprob)
     return subprob
 end
@@ -278,7 +288,7 @@ function monitorfunction(f, u0::NTuple{N, Var{T}}; name=MONITORFUNCTION, active=
     mfunc = MonitorFunction(f, u)
     zp = ComputedFunction(mfunc, (u, u0...), name=name, fdim=1, inplace=true)
 end
-monitorfunction(f, u0; kwargs...) = monitorfunction(f, (u0,); kwargs...)
+monitorfunction(f, u0::Var; kwargs...) = monitorfunction(f, (u0,); kwargs...)
 
 function monitorfunction!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
     _name = name === nothing ? nextproblemname(prob, MONITORFUNCTION) : name
