@@ -403,8 +403,7 @@ function predict!(atlas::Atlas, prob, nextstate)
     predicted.status = :predicted
     atlas.currentchart = predicted
     # Update the projection condition
-    atlas.prcond.u .= predicted.u
-    atlas.prcond.TS .= predicted.TS
+    update_prcond!(atlas.prcond, predicted)
     nextstate[] = correct!
     return
 end
