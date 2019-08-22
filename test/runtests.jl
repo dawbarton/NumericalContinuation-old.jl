@@ -25,10 +25,11 @@ end
 @testset "Algebraic continuation (cubic)" begin
     prob = ContinuationProblem()
     f = (u, p) -> u^3 - p
-    AlgebraicProblem!(prob, f, 1.0, 1.0, pnames=[:μ])
+    AlgebraicProblem!(prob, f, 1.5, 1.0, pnames=[:μ])
     res = zeros(fdim(prob))
-    residual!(res, prob, [1.5, 1.0], nothing, (nothing, (Ref(1.25), nothing)))
-    @test res ≈ [1.5^3-1.0, 1.0-1.25]
+    data = ZeroProblems.initialdata(getzeroproblem(prob))
+    residual!(res, prob, data.u, prob, data.data)
+    @test res ≈ [1.5^3-1.0, 0.0]
 end
 
 @testset "Cylinder/plane intersection" begin
@@ -41,13 +42,12 @@ end
     res0 = zeros(2)
     residual!(res0, prob, [0.1, 0.2, 0.3])
     @test res0 ≈ [-0.95, 0.6]
-    probz = NumericalContinuation.specialize(prob)
-    res = zeros(2)
-    residual!(res, probz, [0.1, 0.2, 0.3])
-    @test res ≈ [-0.95, 0.6]
-    Coverings.setcontinuationvar!(prob.atlas, plane[2])
-    prob1 = Coverings.runstatemachine!(prob)
-    u = [c.u for c in prob1.atlas.charts]
+    solve!(prob, plane[2])
+    # prob will now have been specialized; but extra monitor vars have been added so extra data is needed
+    res = zeros(fdim(prob))
+    residual!(res, prob, [0.1, 0.2, 0.3], prob, prob.atlas.charts[end].data)
+    @test res[1:2] ≈ [-0.95, 0.6]
+    u = [c.u for c in prob.atlas.charts]
     ux = [u[1] for u in u]
     uy = [u[2] for u in u]
     uz = [u[3] for u in u]

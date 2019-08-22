@@ -8,13 +8,13 @@ abstract type AbstractAtlas{T} end
 include("utilities.jl")
 
 include("ZeroProblems.jl")
-using .ZeroProblems: ExtendedZeroProblem, Var
+using .ZeroProblems
 
 include("ComputedFunctions.jl")
-using .ComputedFunctions: ComputedFunction
+using .ComputedFunctions
 
 include("Coverings.jl")
-using .Coverings: Atlas
+using .Coverings
 
 include("continuationproblems.jl")
 include("toolboxes.jl")
@@ -29,7 +29,7 @@ export Coverings, ZeroProblems
 export ContinuationProblem
 
 # Core functionality - functions
-export getzeroproblem, getatlas
+export getvar, getzeroproblem, getatlas, udim, fdim, solve!, setoption!, getoption
 
 # Toolboxes
 # export AlgebraicProblems

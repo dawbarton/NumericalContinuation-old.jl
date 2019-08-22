@@ -6,15 +6,10 @@ import ..NumericalContinuation: specialize, numtype
 
 import ForwardDiff
 
-#--- Notes
-
-# Think about removing uidx and fidx since keeping a copy of the Var or
-# ZeroProblem works just as well now.
-
 #--- Exports
 
 export ExtendedZeroProblem, ZeroProblem, ZeroProblem!, Var, MonitorFunction
-export residual!, fdim, udim, fidx, uidx, fidxrange, uidxrange, dependencies, 
+export residual!, fdim, udim, fidxrange, uidxrange, dependencies, 
     addparameter, addparameter!, getvar, getproblem, hasvar, hasproblem,
     setvaractive!, isvaractive
 
@@ -138,6 +133,10 @@ function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offs
             throw(ArgumentError("Cannot have both a parent and u0 and/or t0"))
         end
         T = numtype(parent)
+        # Copy u0 and t0 from the parent
+        start = (offset < 0) ? (parent.len + offset + 1) : offset + 1
+        _u0 = parent.u0[start:(start + len - 1)]
+        _t0 = parent.t0[start:(start + len - 1)]
     else
         if T === nothing
             if u0 === nothing
@@ -145,10 +144,10 @@ function Var(name::Symbol, len::Int64; parent::Union{Var, Nothing}=nothing, offs
             end
             T = eltype(u0) <: Integer ? Float64 : eltype(u0)  # type promotion of integers since they don't make sense as continuation variables
         end
+        _u0 = _convertvec(T, u0, len)
+        _t0 = _convertvec(T, t0, len)
     end
-    _u0 = _convertvec(T, u0, len)
-    _t0 = _convertvec(T, t0, len)
-    if !(length(_u0) == length(_t0) == len)
+    if !(length(_u0) == length(_t0) == len) && (len != 0)  # allow len = 0 for inactive monitor functions
         throw(ArgumentError("u0 and/or t0 must be nothing or Vectors of length len"))
     end
     return Var{T}(name, len, _u0, _t0, parent, offset, idx, idxrange)
@@ -272,9 +271,10 @@ mutable struct MonitorFunction{T, F}
     u::Var{T}
 end
 
-function monitorfunction(f, u0::NTuple{N, Var{T}}; name=MONITORFUNCTION, active=false) where {N, T}
+function monitorfunction(f, u0::NTuple{N, Var{T}}; name=MONITORFUNCTION, active=false, initialvalue=nothing) where {N, T}
+    iv = initialvalue === nothing ? f((initialdata(u).u for u in u0)...) : initialvalue
     udim = active ? 1 : 0
-    u = Var(name, udim, T=T)
+    u = Var(name, udim, u0=T[iv], t0=T[0])
     mfunc = MonitorFunction(f, u)
     zp = ZeroProblem(mfunc, (u, u0...), name=name, fdim=1, inplace=true)
 end
@@ -292,7 +292,7 @@ passproblem(::Type{<: MonitorFunction}) = true
 
 function initialdata(zp::ZeroProblem{T, <: MonitorFunction}) where T
     mfunc = getfunc(zp)
-    μ = T(mfunc.f((initialdata(u).u for u in Iterators.drop(dependencies(zp), 1))...))
+    μ = initialdata(mfunc.u).u[1]
     fdata = initialdata(mfunc.f)
     return (Ref(μ), fdata)
 end
@@ -426,46 +426,12 @@ fdim(zp::ExtendedZeroProblem) = zp.ϕdim[]
 fdim(prob::AbstractContinuationProblem) = fdim(getzeroproblem(prob))
 
 """
-    uidx(prob, u::Var)
-
-Return the index of the continuation variable within the internal structures.
-This will not change during continuation and so can be stored for fast
-indexing throughout the continuation run.
-
-# Example
-
-```
-ui = uidx(prob, myvariable)  # once at the start of the continuation run (slow)
-u[uidxrange(prob, ui)]  # as frequently as necessary (fast)
-```
-"""
-uidx(zp::ExtendedZeroProblem, u) = uidx(getvar(zp, u))
-uidx(prob::AbstractContinuationProblem, x) = uidx(getzeroproblem(prob), x)
-
-"""
     uidxrange(prob, i::Integer)
 
 Return the index of the continuation variable within the solution vector. (May
 change during continuation, for example if adaptive meshing is used.)
 """
 uidxrange(zp::ExtendedZeroProblem, i::Integer) = uidxrange(zp.u[i])
-
-"""
-    fidx(prob, prob::ZeroProblem)
-
-Return the index of the sub-problem within the internal structures. This will
-not change during continuation and so can be stored for fast indexing
-throughout the continuation run.
-
-# Example
-
-```
-fi = fidx(prob, myproblem)  # once at the start of the continuation run (slow)
-res[fidxrange(prob, fi)]  # as frequently as necessary (fast)
-```
-"""
-fidx(zp::ExtendedZeroProblem, prob) = fidx(getproblem(zp, prob))
-fidx(prob::AbstractContinuationProblem, x) = fidx(getzeroproblem(prob), x)
 
 """
     fidxrange(prob, i::Integer)

@@ -7,11 +7,10 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: monitorfunction, initialdata, uidx, uidxrange, fidx, fidxrange, 
-    udim, fdim, jacobian_ad, Var, getvar
-using ..NumericalContinuation: AbstractAtlas, getoption, getzeroproblem, getatlas
-import ..ZeroProblems: residual!
-import ..NumericalContinuation: specialize, setuseroptions!
+using ..ZeroProblems: Var, ZeroProblem, MonitorFunction, monitorfunction!, 
+    initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, residual!
+using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
+    getoption, getzeroproblem
 
 using LinearAlgebra
 
@@ -19,13 +18,33 @@ using NLsolve
 
 export Atlas, Chart
 
-#-------------------------------------------------------------------------------
+#--- Chart
+
+mutable struct Chart{T, D <: Tuple}
+    pt::Int64
+    pt_type::Symbol
+    ep_flag::Bool
+    status::Symbol
+    u::Vector{T}
+    TS::Vector{T}  # tangent space (not normalized)
+    t::Vector{T}  # normalized tangent vector
+    s::Int64
+    R::T
+    data::D
+end
+Chart(; pt=-1, pt_type=:unknown, ep_flag=false, status=:new, u, TS, t, s=1, R, data=()) = Chart(pt, pt_type, ep_flag, status, u, TS, t, s, R, data)
+
+#--- Projection condition (pseudo-arclength equation)
 
 struct PrCond{T}
     u::Vector{T}
     TS::Vector{T}
 end
-PrCond(T::Type) = PrCond{T}(Vector{T}(), Vector{T}())
+
+function PrCond(prob::AbstractContinuationProblem{T}) where T
+    n = udim(prob)
+    return PrCond{T}(zeros(T, n), zeros(T, n))
+end
 
 function (prcond::PrCond{T})(u) where T
     res = zero(T)
@@ -35,113 +54,117 @@ function (prcond::PrCond{T})(u) where T
     return res
 end
 
-#-------------------------------------------------------------------------------
-
-# Chart contains atlas algorithm specific data
-Base.@kwdef mutable struct Chart{T, D <: Tuple}
-    pt::Int64 = -1
-    pt_type::Symbol = :unknown
-    ep_flag::Bool = false
-    status::Symbol = :new
-    u::Vector{T}
-    TS::Vector{T}  # tangent space (not normalized)
-    t::Vector{T}  # normalized tangent vector
-    s::Int64 = 1
-    R::T
-    data::D = ()
+function initial_prcond!(prcond::PrCond{T}, chart::Chart, contvar::Var) where T
+    prcond.u .= chart.u
+    prcond.TS .= zero(T)
+    prcond.TS[uidxrange(contvar)] .= one(T)
+    return
 end
-Chart(T::Type) = Chart{T, Tuple}(u=Vector{T}(), TS=Vector{T}(), t=Vector{T}(), R=zero(T))
 
-# specialize(chart::Chart) = chart
-specialize(chart::Chart) = Chart(pt=chart.pt, pt_type=chart.pt_type, ep_flag=chart.ep_flag, 
-    status=chart.status, u=chart.u, TS=chart.TS, t=chart.t, s=chart.s, R=chart.R, data=(chart.data...,)) 
+function update_prcond!(prcond::PrCond, chart::Chart)
+    prcond.u .= chart.u
+    prcond.TS .= chart.TS
+    return
+end
 
-#-------------------------------------------------------------------------------
+#--- AtlasOptions
 
-Base.@kwdef mutable struct AtlasOptions{T}
+mutable struct AtlasOptions{T}
+    correctinitial::Bool
+    initialstep::T
+    initialdirection::Int64
+    stepmin::T
+    stepmax::T
+    stepdecrease::T
+    stepincrease::T
+    αmax::T
+    ga::T
+    maxiter::Int64
+    prcond::Any
+end
+
+function AtlasOptions(prob::AbstractContinuationProblem{T}) where T
     # Where possible, use numbers that can be exactly represented with a Float64
-    correctinitial::Bool = true
-    initialstep::T = T(1/2^6)
-    initialdirection::Int64 = 1
-    stepmin::T = T(1/2^20)
-    stepmax::T = T(1)
-    stepdecrease::T = T(1/2)
-    stepincrease::T = T(1.125)
-    αmax::T = T(0.125)  # approx 7 degrees
-    ga::T = T(0.95)  # adaptation security factor
-    maxiter::Int64 = 100
+    correctinitial = getoption(prob, :atlas, :correctinitial, default=true)
+    initialstep = getoption(prob, :atlas, :initialstep, default=T(1/2^6))
+    initialdirection = getoption(prob, :atlas, :initialdirection, default=1)
+    stepmin = getoption(prob, :atlas, :stepmin, default=T(1/2^20))
+    stepmax = getoption(prob, :atlas, :stepmax, default=T(1))
+    stepdecrease = getoption(prob, :atlas, :stepdecrease, default=T(1/2))
+    stepincrease = getoption(prob, :atlas, :stepincrease, default=T(1.125))
+    αmax = getoption(prob, :atlas, :αmax, default=T(0.125))  # approx 7 degrees
+    ga = getoption(prob, :atlas, :ga, default=T(0.95))  # adaptation security factor
+    maxiter = getoption(prob, :atlas, :maxiter, default=100)
+    prcond = getoption(prob, :atlas, :prcond, default=PrCond)
+    return AtlasOptions(correctinitial, initialstep, initialdirection, stepmin, 
+        stepmax, stepdecrease, stepincrease, αmax, ga, maxiter, prcond)
 end
-AtlasOptions(T::Type) = AtlasOptions{T}()
 
-#-------------------------------------------------------------------------------
+#--- Atlas
 
-mutable struct Atlas{T, D} <: AbstractAtlas{T}
+"""
+    Atlas
+
+# Options
+
+$(fieldnames(AtlasOptions))
+"""
+mutable struct Atlas{T, D, P} <: AbstractAtlas{T}
     charts::Vector{Chart{T, D}}
     currentchart::Chart{T, D}
-    prcond::PrCond{T}
-    prcondidx::Int64
-    contvar::Var{T}
-    contvaridx::Int64
+    prcond::P
+    prcondzp::ZeroProblem{T, MonitorFunction{T, P}}
     currentcurve::Vector{Chart{T, D}}
     options::AtlasOptions{T}
+    contvar::Var{T}
 end
 
-function Atlas(T::Type)
-    D = Tuple
-    charts = Vector{Chart{T, D}}()
-    currentchart = Chart(T)
-    prcond = PrCond(T)
-    prcondidx = 0
-    contvar = Var(:null, 1, T=T)
-    contvaridx = 0
-    currentcurve = Vector{Chart{T, D}}()
-    options = AtlasOptions(T)
-    return Atlas{T, D}(charts, currentchart, prcond, prcondidx, contvar, contvaridx, currentcurve, options)
-end
-
-function specialize(atlas::Atlas)
-    # Specialize based on the current chart
-    currentchart = specialize(atlas.currentchart)
-    C = typeof(currentchart)
-    charts = convert(Vector{C}, atlas.charts)
-    currentcurve = convert(Vector{C}, atlas.currentcurve)
-    return Atlas(charts, currentchart, atlas.prcond, atlas.prcondidx, atlas.contvar, atlas.contvaridx, currentcurve, atlas.options)
-end
-
-function setuseroptions!(atlas::Atlas, options::Dict)
-    optfields = Set(fieldnames(AtlasOptions))
-    for opt in options
-        if opt[1] in optfields
-            setfield!(atlas.options, opt[1], opt[2])
-        else
-            @info "Unused atlas option" opt
-        end
+function Atlas(prob::AbstractContinuationProblem{T}, contvar::Var{T}) where T
+    # Set up the options
+    options = AtlasOptions(prob)
+    # Add the projection condition to the zero problem
+    prcond = options.prcond(prob)
+    prcondzp = monitorfunction!(prob, prcond, getvar(prob, :allvars), name=:prcond, initialvalue=0)
+    # Check dimensionality
+    zp = getzeroproblem(prob)
+    n = udim(zp)
+    if n != fdim(zp)
+        throw(ErrorException("Dimension mismatch; expected number of equations to match number of continuation variables"))
     end
-    return atlas
-end
-
-setcontinuationvar!(atlas::Atlas{T}, contvar::Var{T}) where T = (atlas.contvar = contvar; atlas)
-
-#-------------------------------------------------------------------------------
-
-function runstatemachine!(prob)
-    state = Base.RefValue{Any}(nothing)
-    init_covering!(getatlas(prob), prob, state)
-    if getoption(prob, :general, :specialize, default=true)
-        _prob = specialize(prob)
+    # Put the initial guess into a chart structure
+    initial = initialdata(zp)
+    @assert length(initial.u) == n
+    currentchart = Chart(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, t=zeros(T, n),
+        data=initial.data, R=options.initialstep, s=options.initialdirection)
+    currentchart.t .= currentchart.TS.*currentchart.s
+    normTS = norm(initial.TS)
+    if normTS > 0
+        initial.t ./= normTS
+    end
+    # Determine the first state
+    if options.correctinitial
+        currentchart.status = :predicted
     else
-        _prob = prob
+        currentchart.status = :corrected
     end
-    _runstatemachine!(getatlas(_prob), _prob, state)
-    return _prob
+    # Other variables
+    charts = Vector{typeof(currentchart)}()
+    currentcurve = Vector{typeof(currentchart)}()
+    return Atlas(charts, currentchart, prcond, prcondzp, currentcurve, options, contvar)
 end
 
-@noinline function _runstatemachine!(atlas::Atlas, prob, state)  # a function barrier
+getcontvar(atlas::Atlas) = atlas.contvar
+
+function (atlas::Atlas)(prob::AbstractContinuationProblem)
+    # Finite state machine to do the continuation
+    state = Base.RefValue{Any}(init_covering!)
     while state[] !== nothing
         state[](atlas, prob, state)
     end 
     return prob
 end
+
+#--- Finite state machine states for the atlas
 
 """
     init_covering!(atlas, prob, nextstate)
@@ -150,10 +173,8 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 
 # Outline
 
-1. Add the projection condition to the zero problem.
-2. Get the initial solution and put into a chart structure.
-3. Determine the initial projection condition.
-4. Set the chart status to be
+1. Determine the initial projection condition.
+2. Set the chart status to be
     * `:predicted` if the initial solution should be corrected (default), or
     * `:corrected` if the initial solution should not be modified.
 
@@ -162,39 +183,16 @@ Initialise the data structures associated with the covering (atlas) algorithm.
 * [`Coverings.correct!`](@ref) if chart status is `:predicted`; otherwise
 * [`Coverings.addchart!`](@ref).
 """
-function init_covering!(atlas::Atlas{T, D}, prob, nextstate) where {T, D}
-    # Add the projection condition to the zero problem
-    zp = getzeroproblem(prob)
-    prcondzp = monitorfunction(atlas.prcond, getvar(prob, :allvars), name=:prcond)
-    push!(zp, prcondzp)
-    atlas.prcondidx = fidx(prcondzp)  # store the location within the problem structure (TODO: Fix this - should store the ZeroProblem!)
-    atlas.contvaridx = uidx(zp, atlas.contvar)
-    # Check dimensionality
-    n = udim(zp)
-    if n != fdim(zp)
-        throw(ErrorException("Dimension mismatch; expected number of equations to match number of continuation variables"))
-    end
-    # Put the initial guess into a chart structure
-    initial = initialdata(zp)
-    @assert length(initial.u) == n
-    atlas.currentchart = Chart{T, D}(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, t=zeros(T, n),
-        data=initial.data, R=atlas.options.initialstep, s=atlas.options.initialdirection)
-    atlas.currentchart.t .= atlas.currentchart.TS.*atlas.currentchart.s
-    normTS = norm(initial.TS)
-    if normTS > 0
-        initial.t ./= normTS
-    end
-    # Set up the initial projection condition (TODO: this could be generalised for other projection conditions)
-    resize!(atlas.prcond.u, n) .= initial.u
-    resize!(atlas.prcond.TS, n) .= zero(T)
-    atlas.prcond.TS[uidxrange(zp, atlas.contvaridx)] .= one(T)
-    # Determine the first state
-    if atlas.options.correctinitial
-        atlas.currentchart.status = :predicted
+function init_covering!(atlas::Atlas, prob, nextstate)
+    # Set up the initial projection condition
+    initial_prcond!(atlas.prcond, atlas.currentchart, atlas.contvar)
+    # Choose the next state
+    if atlas.currentchart.status === :predicted
         nextstate[] = correct!
-    else
-        atlas.currentchart.status = :corrected
+    elseif atlas.currentchart.status === :corrected
         nextstate[] = addchart!
+    else
+        throw(ErrorException("currentchart has an invalid initial status"))
     end
     return
 end
@@ -268,7 +266,7 @@ function addchart!(atlas::Atlas{T}, prob, nextstate) where T
     # Update the tangent vector
     dfdu = jacobian_ad(zp, chart.u, prob, chart.data)
     dfdp = zeros(T, length(chart.u))
-    dfdp[fidxrange(zp, atlas.prcondidx)] .= one(T) # TODO: fix this with a ref to the actual ZeroProblem
+    dfdp[fidxrange(atlas.prcondzp)] .= one(T)
     chart.TS .= dfdu \ dfdp
     chart.t .= chart.s.*chart.TS./norm(chart.TS)
     opt = atlas.options
@@ -410,6 +408,5 @@ function predict!(atlas::Atlas, prob, nextstate)
     nextstate[] = correct!
     return
 end
-
 
 end # module
