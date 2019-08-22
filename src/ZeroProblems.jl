@@ -328,7 +328,7 @@ addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = push!(getz
 #--- ExtendedZeroProblem - the full problem structure
 
 struct ExtendedZeroProblem{T, D, U, Φ}
-    u::U
+    u::U  # TODO: given that Vector{Var{T}} is concrete, why store this as a tuple?
     udim::Base.RefValue{Int64}
     usym::Dict{Symbol, Var{T}}
     ϕ::Φ
