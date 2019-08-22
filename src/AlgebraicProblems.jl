@@ -12,7 +12,7 @@ module AlgebraicProblems
 
 using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
 import ..NumericalContinuation: getsubproblems
-using ..ZeroProblems: Var, ZeroProblem, addparameter, nextproblemname
+using ..ZeroProblems: Var, ComputedFunction, addparameter, nextproblemname
 import ..ZeroProblems: residual!
 
 export AlgebraicProblem, AlgebraicProblem!
@@ -34,7 +34,7 @@ function algebraiczeroproblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union
     U = u0 isa Vector ? Vector : Number  # give the user provided function the input expected
     P = p0 isa Vector ? Vector : Number
     alg = AlgebraicZeroProblem{typeof(f!), U, P}(f!)
-    return ZeroProblem(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
+    return ComputedFunction(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
 end
 
 _convertto(T, val) = val
@@ -66,8 +66,8 @@ push!(prob, ap)
 """
 struct AlgebraicProblem{T} <: AbstractToolbox{T}
     name::Symbol
-    efunc::ZeroProblem{T}
-    mfuncs::Vector{ZeroProblem{T}}
+    efunc::ComputedFunction{T}
+    mfuncs::Vector{ComputedFunction{T}}
 end
 
 const ALGEBRAICPROBLEM = :alg
@@ -79,7 +79,7 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
     efunc = algebraiczeroproblem(f, u0, p0, name=name)
     T = numtype(efunc)
     p = efunc[2]  # parameter vector
-    mfuncs = Vector{ZeroProblem{T}}()
+    mfuncs = Vector{ComputedFunction{T}}()
     _pnames = pnames === nothing ? [Symbol(name, :_p, i) for i in 1:length(p0)] : pnames
     for i in eachindex(_pnames)
         push!(mfuncs, addparameter(Var(Symbol(""), 1, parent=p, offset=i-1), name=_pnames[i]))

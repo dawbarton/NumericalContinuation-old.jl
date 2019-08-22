@@ -7,7 +7,7 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: Var, ZeroProblem, MonitorFunction, monitorfunction!, 
+using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction!, 
     initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, residual!
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
     getoption, getzeroproblem
@@ -113,7 +113,7 @@ mutable struct Atlas{T, D, P} <: AbstractAtlas{T}
     charts::Vector{Chart{T, D}}
     currentchart::Chart{T, D}
     prcond::P
-    prcondzp::ZeroProblem{T, MonitorFunction{T, P}}
+    prcondzp::ComputedFunction{T, MonitorFunction{T, P}}
     currentcurve::Vector{Chart{T, D}}
     options::AtlasOptions{T}
     contvar::Var{T}
