@@ -3,10 +3,9 @@ language: julia
 dist: xenial
 os:
   - linux
-  - osx
 julia:
   - 1.0
-  - 1.1
+  - 1.2
   - nightly
 notifications:
   email: false
@@ -30,5 +29,6 @@ git:
 #         - julia --project=docs --color=yes docs/make.jl
 #       after_success: skip
 after_success:
-  - julia --project=test/coverage -e 'using Pkg; Pkg.instantiate()'
-  - julia --project=test/coverage test/coverage/coverage.jl
+  - echo "**** submitting coverage information"
+  - julia --project=test/coverage -e 'using Pkg; Pkg.instantiate();
+        using Coverage; Codecov.submit(Codecov.process_folder())'
