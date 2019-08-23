@@ -298,19 +298,19 @@ function initialdata(zp::ComputedFunction{T, <: MonitorFunction}) where T
 end
 
 function evaluate!(res, mfunc::MonitorFunction, prob, data, um, u...)
-    μ = isempty(um) ? data[1][] : um[1]
+    mu = isempty(um) ? data[1][] : um[1]
     _passdata = passdata(typeof(mfunc.f))
     _passprob = passproblem(typeof(mfunc.f))
     if _passdata
         if _passprob
-            res[1] = mfunc.f(prob, data[2], u...) - μ
+            res[1] = mfunc.f(prob, data[2], u...) - mu
         else
-            res[1] = mfunc.f(data[2], u...) - μ
+            res[1] = mfunc.f(data[2], u...) - mu
         end
     elseif _passprob
-        res[1] = mfunc.f(prob, u...) - μ
+        res[1] = mfunc.f(prob, u...) - mu
     else
-        res[1] = mfunc.f(u...) - μ
+        res[1] = mfunc.f(u...) - mu
     end
     return nothing
 end
@@ -325,69 +325,201 @@ end
 
 addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = addfunc!(getzeroproblem(prob), addparameter(u; kwargs...))
 
+#--- FunctionCollection - functions and their dependencies
+
+struct FunctionCollection{T, D, U, F}
+    u::U
+    f::F
+    fdeps::Vector{Tuple{Vararg{Int64, N} where N}}
+    fdim::Base.RefValue{Int64}
+    fsym::Dict{Symbol, ComputedFunction{T}}
+end
+
+function FunctionCollection(T=Float64)
+    FunctionCollection{T, Nothing, Vector{Var{T}}, Vector{ComputedFunction{T}}}(
+        Vector{Var{T}}(),                               # u
+        Vector{ComputedFunction{T}}(),                  # f
+        Vector{Tuple{Vararg{Int64, N} where N}}(),      # fdeps
+        Ref(zero(Int64)),                               # fdim
+        Dict{Symbol, ComputedFunction{T}}(),            # fsym
+    )
+end
+
+function specialize(fc::FunctionCollection{T}) where T
+    u = (fc.u...,)
+    f = ((specialize(f) for f in fc.f)...,)
+    fdeps = fc.fdeps
+    return FunctionCollection{T, (fdeps...,), typeof(u), typeof(f)}(u, f, fdeps, fc.fdim, fc.fsym)
+end
+
+function Base.show(io::IO, fc::FunctionCollection{T}) where T
+    print(io, "FunctionCollection")
+    (T !== Float64) && print(io, "{$T}")
+    print(io, "([")
+    print(io, join(["$f" for f in fc.f], ", "))
+    print(io, "])")
+end
+
+fdim(fc::FunctionCollection) = fc.fdim[]
+
+function update_fidxrange!(fc::FunctionCollection)
+    last = 0
+    for f in fc.f
+        n = fdim(f)
+        f.idxrange = (last + 1):(last + n)
+        last += n
+    end
+    fc.fdim[] = last
+    return fc
+end
+
+function addfunc!(fc::FunctionCollection{T, Nothing}, f::ComputedFunction{T}) where T
+    if f in fc.f
+        throw(ArgumentError("Function is already part of the collection"))
+    end
+    depidx = Vector{Int64}()
+    for u in dependencies(f)
+        ui = findfirst(==(u), fc.u)
+        if ui === nothing
+            ui = lastindex(push!(fc.u, u))
+        end
+        push!(depidx, ui)
+    end
+    last = fc.fdim[]
+    fdim = fdim(f)
+    f.idx = lastindex(push!(fc.f, f))
+    f.idxrange = (last + 1):(last + fdim)
+    fc.fdim[] = last + fdim
+    push!(fc.fdeps, (depidx...,))
+    name = nameof(f)
+    if name !== Symbol("")
+        if name in keys(fc.fsym)
+            @warn "Duplicate function name in collection" f
+        end
+        fc.fsym[name] = f
+    end
+    return fc
+end
+
+function evaluate!(res, fc::FunctionCollection{T, Nothing}, u, prob=nothing, data=nothing) where T
+    uv = [uview(u, udep.idxrange) for udep in fc.u]
+    for i in eachindex(fc.f)
+        args = Any[uview(res, fc.f[i].idxrange), fc.f[i]]
+        if passproblem(typeof(fc.f[i]))
+            push!(args, prob)
+        end
+        if passdata(typeof(fc.f[i]))
+            push!(args, data[i])
+        end
+        for dep in fc.fdeps[i]
+            push!(args, uv[dep])
+        end
+        evaluate!(args...)
+    end
+    return res
+end
+
+@generated function evaluate!(res, fc::FunctionCollection{T, D, U, F}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, F <: Tuple}
+    body = quote
+        # Construct views into u for each variable
+        uv = ($((:(uview(u, fc.u[$i].idxrange)) for i in eachindex(U.parameters))...),)
+    end
+    # Call each of the problems
+    for i in eachindex(D)
+        expr = :(evaluate!(uview(res, fc.f[$i].idxrange), fc.f[$i]))
+        if passproblem(F.parameters[i])
+            push!(expr.args, :prob)
+        end
+        if passdata(F.parameters[i])
+            push!(expr.args, :(data[$i]))
+        end
+        for j in eachindex(D[i])
+            push!(expr.args, :(uv[$(D[i][j])]))
+        end
+        push!(body.args, expr)
+    end
+    # Return res
+    push!(body.args, :res)
+    # @show body
+    body
+end
+
+evaluate!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob), u, args...)
+
+function jacobian!(J, fc::FunctionCollection{T}, u, args...) where T
+    # A simple forward difference
+    ϵ = T(1e-6)
+    @assert size(J, 1) == size(J, 2) == length(u)
+    res = zeros(T, length(u))
+    evaluate!(res, fc, u, args...)
+    for i in eachindex(u)
+        uu = u[i]
+        u[i] += ϵ
+        evaluate!(uview(J, :, i), fc, u, args...)
+        for j in eachindex(u)
+            J[j, i] = (J[j, i] - res[j])/ϵ
+        end
+        u[i] = uu
+    end
+    return J
+end
+
+function jacobian_ad(fc::FunctionCollection, u, args...) 
+    ForwardDiff.jacobian((res, u)->evaluate!(res, fc, u, args...), zeros(size(u)), u)
+end
+
+initialdata(fc::FunctionCollection) = ((initialdata(f) for f in fc.f)...,)
+
 #--- ExtendedZeroProblem - the full problem structure
 
-struct ExtendedZeroProblem{T, D, U, Φ}
-    u::U
+struct ExtendedZeroProblem{T, E <: FunctionCollection, N <: FunctionCollection}
+    u::Vector{Var{T}}
     udim::Base.RefValue{Int64}
     usym::Dict{Symbol, Var{T}}
-    ϕ::Φ
-    ϕdeps::Vector{Tuple{Vararg{Int64, N} where N}}
-    ϕdim::Base.RefValue{Int64}
-    ϕsym::Dict{Symbol, ComputedFunction{T}}
+    fsym::Dict{Symbol, ComputedFunction{T}}
+    embed::E
+    nonembed::N
 end
 
 function ExtendedZeroProblem(T=Float64) 
-    prob = ExtendedZeroProblem{T, Nothing, Vector{Var{T}}, Vector{ComputedFunction{T}}}(
+    prob = ExtendedZeroProblem(
         Vector{Var{T}}(),                               # u
         Ref(zero(Int64)),                               # udim
         Dict{Symbol, Var{T}}(),                         # usym
-        Vector{ComputedFunction{T}}(),                  # ϕ
-        Vector{Tuple{Vararg{Int64, N} where N}}(),      # ϕdeps
-        Ref(zero(Int64)),                               # ϕdim
-        Dict{Symbol, ComputedFunction{T}}(),            # ϕsym
+        Dict{Symbol, ComputedFunction{T}}(),            # fsym
+        FunctionCollection(T),                          # embed
+        FunctionCollection(T),                          # nonembed
     )
     addvar!(prob, Var(:allvars, 0, T=T))
     return prob
 end
 
-function ExtendedZeroProblem(probs::Vector{<: ComputedFunction{T}}) where T
-    zp = ExtendedZeroProblem(T)
-    for prob in probs
-        push!(zp, prob)
-    end
-    return zp
-end
-
-function specialize(zp::ExtendedZeroProblem{T}) where T
-    u = (zp.u...,)
-    ϕ = ((specialize(ϕ) for ϕ in zp.ϕ)...,)
-    ϕdeps = zp.ϕdeps
-    return ExtendedZeroProblem{T, (ϕdeps...,), typeof(u), typeof(ϕ)}(u, zp.udim, zp.usym, ϕ, ϕdeps, zp.ϕdim, zp.ϕsym)
+function specialize(zp::ExtendedZeroProblem)
+    return ExtendedZeroProblem(zp.u, zp.udim, zp.usym, zp.fsym, specialize(zp.embed), specialize(zp.nonembed))
 end
 
 function Base.show(io::IO, zp::ExtendedZeroProblem{T}) where T
     print(io, "ExtendedZeroProblem")
     (T !== Float64) && print(io, "{$T}")
-    print(io, "(Var[")
+    print(io, "([")
     print(io, join(["$u" for u in zp.u], ", "))
-    print(io, "], ComputedFunction[")
-    print(io, join(["$ϕ" for ϕ in zp.ϕ], ", "))
-    print(io, "])")
+    print(io, "], $(zp.embed), $(zp.nonembed))")
 end
 
 getvar(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
 getvar(zp::ExtendedZeroProblem, u::Var) = u
 getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
-getfunc(zp::ExtendedZeroProblem, f::Symbol) = zp.ϕsym[f]
+
+getfunc(zp::ExtendedZeroProblem, f::Symbol) = zp.fsym[f]
 getfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f
 getfunc(prob::AbstractContinuationProblem, f) = getfunc(getzeroproblem(prob), f)
 
 hasvar(zp::ExtendedZeroProblem, u::Symbol) = u in keys(zp.usym)
 hasvar(zp::ExtendedZeroProblem, u::Var) = u in zp.u
 hasvar(prob::AbstractContinuationProblem, u) = hasvar(getzeroproblem(prob), u)
-hasfunc(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.ϕsym)
-hasfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f in zp.ϕ
+
+hasfunc(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.fsym)
+hasfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f in zp.f
 hasfunc(prob::AbstractContinuationProblem, f) = hasfunc(getzeroproblem(prob), f)
 
 """
@@ -405,24 +537,10 @@ udim(prob::AbstractContinuationProblem) = udim(getzeroproblem(prob))
 Return the number of equations in the problem. (May change during continuation,
 for example if adaptive meshing is used.)
 """
-fdim(zp::ExtendedZeroProblem) = zp.ϕdim[]
-fdim(prob::AbstractContinuationProblem) = fdim(getzeroproblem(prob))
-
-"""
-    uidxrange(prob, i::Integer)
-
-Return the index of the continuation variable within the solution vector. (May
-change during continuation, for example if adaptive meshing is used.)
-"""
-uidxrange(zp::ExtendedZeroProblem, i::Integer) = uidxrange(zp.u[i])
-
-"""
-    fidxrange(prob, i::Integer)
-
-Return the index of the sub-problem within the residual vector. (May change
-during continuation, for example if adaptive meshing is used.)
-"""
-fidxrange(zp::ExtendedZeroProblem, i::Integer) = fidxrange(zp.ϕ[i])
+fdim(zp::ExtendedZeroProblem) = fdim(zp, EmbeddedFunction)
+fdim(zp::ExtendedZeroProblem, ::Type{EmbeddedFunction}) = fdim(zp.embed)
+fdim(zp::ExtendedZeroProblem, ::Type{NonEmbeddedFunction}) = fdim(zp.nonembed)
+fdim(prob::AbstractContinuationProblem, args...) = fdim(getzeroproblem(prob), args...)
 
 function update_uidxrange!(u::Var, last::Int64)
     n = udim(u)
@@ -448,7 +566,7 @@ function update_uidxrange!(zp::ExtendedZeroProblem)
     return zp
 end
 
-function addvar!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
+function addvar!(zp::ExtendedZeroProblem, u::Var)
     if !(u in zp.u)
         up = u.parent
         if (up !== nothing) && !(up in zp.u)
@@ -469,113 +587,9 @@ function addvar!(zp::ExtendedZeroProblem{T, Nothing}, u::Var{T}) where T
     return u
 end
 
-addvar!(prob::AbstractContinuationProblem{T}, u::Var{T}) where T = addvar!(getzeroproblem(prob), u)
+addvar!(prob::AbstractContinuationProblem, u::Var) = addvar!(getzeroproblem(prob), u)
 
-function update_ϕi!(zp::ExtendedZeroProblem)
-    last = 0
-    for ϕ in zp.ϕ
-        n = fdim(ϕ)
-        ϕ.idxrange = (last + 1):(last + n)
-        last += n
-    end
-    zp.ϕdim[] = last
-    return zp
-end
-
-function addfunc!(zp::ExtendedZeroProblem{T, Nothing}, prob::ComputedFunction{T}) where T
-    if prob in zp.ϕ
-        throw(ArgumentError("Problem is already part of the zero problem"))
-    end
-    depidx = Vector{Int64}()
-    for u in dependencies(prob)
-        push!(depidx, uidx(addvar!(zp, u)))
-    end
-    last = zp.ϕdim[]
-    ϕdim = fdim(prob)
-    prob.idx = lastindex(push!(zp.ϕ, prob))
-    prob.idxrange = (last + 1):(last + ϕdim)
-    zp.ϕdim[] = last + ϕdim
-    push!(zp.ϕdeps, (depidx...,))
-    name = nameof(prob)
-    if name !== Symbol("")
-        if name in keys(zp.ϕsym)
-            @warn "Duplicate problem name in ExtendedZeroProblem" prob
-        end
-        zp.ϕsym[name] = prob
-    end
-    return zp
-end
-
-addfunc!(prob::AbstractContinuationProblem{T}, zp::ComputedFunction{T}) where T = addfunc!(getzeroproblem(prob), zp)
-
-function evaluate!(res, zp::ExtendedZeroProblem{T, Nothing}, u, prob=nothing, data=nothing) where T
-    uv = [uview(u, udep.idxrange) for udep in zp.u]
-    for i in eachindex(zp.ϕ)
-        args = Any[uview(res, zp.ϕ[i].idxrange), zp.ϕ[i]]
-        if passproblem(typeof(zp.ϕ[i]))
-            push!(args, prob)
-        end
-        if passdata(typeof(zp.ϕ[i]))
-            push!(args, data[i])
-        end
-        for dep in zp.ϕdeps[i]
-            push!(args, uv[dep])
-        end
-        evaluate!(args...)
-    end
-    return res
-end
-
-@generated function evaluate!(res, zp::ExtendedZeroProblem{T, D, U, Φ}, u, prob=nothing, data=nothing) where {T, D, U <: Tuple, Φ <: Tuple}
-    body = quote
-        # Construct views into u for each variable
-        uv = ($((:(uview(u, zp.u[$i].idxrange)) for i in eachindex(U.parameters))...),)
-    end
-    # Call each of the problems
-    for i in eachindex(D)
-        expr = :(evaluate!(uview(res, zp.ϕ[$i].idxrange), zp.ϕ[$i]))
-        if passproblem(Φ.parameters[i])
-            push!(expr.args, :prob)
-        end
-        if passdata(Φ.parameters[i])
-            push!(expr.args, :(data[$i]))
-        end
-        for j in eachindex(D[i])
-            push!(expr.args, :(uv[$(D[i][j])]))
-        end
-        push!(body.args, expr)
-    end
-    # Return res
-    push!(body.args, :res)
-    # @show body
-    body
-end
-
-evaluate!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob), u, args...)
-
-function jacobian!(J, zp::ExtendedZeroProblem{T}, u, args...) where T
-    # A simple forward difference
-    ϵ = T(1e-6)
-    @assert size(J, 1) == size(J, 2) == length(u)
-    res = zeros(T, length(u))
-    evaluate!(res, zp, u, args...)
-    for i in eachindex(u)
-        uu = u[i]
-        u[i] += ϵ
-        evaluate!(uview(J, :, i), zp, u, args...)
-        for j in eachindex(u)
-            J[j, i] = (J[j, i] - res[j])/ϵ
-        end
-        u[i] = uu
-    end
-    return J
-end
-
-function jacobian_ad(zp::ExtendedZeroProblem, u, args...) 
-    ForwardDiff.jacobian((res, u)->evaluate!(res, zp, u, args...), zeros(size(u)), u)
-end
-
-function initialdata(zp::ExtendedZeroProblem{T}) where T
+function initialvar(zp::ExtendedZeroProblem{T}) where T
     ndim = udim(zp)
     u = zeros(T, ndim)
     t = zeros(T, ndim)
@@ -585,8 +599,7 @@ function initialdata(zp::ExtendedZeroProblem{T}) where T
             t[udep.idxrange] .= udep.t0
         end
     end
-    data = ((initialdata(ϕ) for ϕ in zp.ϕ)...,)
-    return (u=u, TS=t, data=data)
+    return (u=u, TS=t)
 end
 
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
@@ -594,10 +607,30 @@ function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
     update_uidxrange!(zp)
     return
 end
+
 setvaractive!(zp::ExtendedZeroProblem, u::Symbol, active::Bool) = setvaractive!(zp, getvar(zp, u), active)
 setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getzeroproblem(prob), u, active)
 
 isvaractive(u) = u.len > 0
+
+function addfunc!(zp::ExtendedZeroProblem, f::ComputedFunction)
+    if nameof(f) in keys(zp.fsym)
+        @warn "Duplicate function name in ExtendedZeroProblem" f
+    end
+    for u in dependencies(f)
+        addvar!(zp, u)
+    end
+    zp.fsym[nameof(f)] = f
+    if f isa EmbeddedFunction
+        addfunc!(zp.embed, f)
+    elseif f isa NonEmbeddedFunction
+        addfunc!(zp.nonembed, f)
+    else
+        throw(ArgumentError("Unknown function type - should be a subtype of either an EmbeddedFunction or a NonEmbeddedFunction"))
+    end
+end
+
+addfunc!(prob::AbstractContinuationProblem, f::ComputedFunction) = addfunc!(getzeroproblem(prob), f)
 
 #--- NonEmbedded functions
 
@@ -607,7 +640,7 @@ end
 
 (rf::RegularFunction)(u...) = rf.f(u...)
 
-function regularfunction(f, u::NTuple{N, Var{T}}; name=:reg, kwargs...) where {N, T}
+function regularfunction(f, u::NTuple{N, Var{T}}; name, kwargs...) where {N, T}
     ComputedFunction(RegularFunction{T}(f), u; name=name, kwargs...)
 end
 
@@ -617,7 +650,7 @@ end
 
 (sf::SingularFunction)(u...) = sf.f(u...)
 
-function singularfunction(f, u::NTuple{N, Var{T}}; name=:sing, kwargs...) where {N, T}
+function singularfunction(f, u::NTuple{N, Var{T}}; name, kwargs...) where {N, T}
     ComputedFunction(SingularFunction{T}(f), u; name=name, kwargs...)
 end
 
