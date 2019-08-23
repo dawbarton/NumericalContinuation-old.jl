@@ -7,7 +7,7 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction!, 
+using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction, addfunc!, 
     initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate!
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
     getoption, getzeroproblem
@@ -124,7 +124,7 @@ function Atlas(prob::AbstractContinuationProblem{T}, contvar::Var{T}) where T
     options = AtlasOptions(prob)
     # Add the projection condition to the zero problem
     prcond = options.prcond(prob)
-    prcondzp = monitorfunction!(prob, prcond, getvar(prob, :allvars), name=:prcond, initialvalue=0)
+    prcondzp = addfunc!(prob, monitorfunction(prcond, getvar(prob, :allvars), name=:prcond, initialvalue=0))
     # Check dimensionality
     zp = getzeroproblem(prob)
     n = udim(zp)

@@ -59,13 +59,16 @@ getatlas(prob::ContinuationProblem) = prob.atlas  # TODO: check for usage since 
 getzeroproblem(prob::ContinuationProblem) = prob.zp
 gettoolboxes(prob::ContinuationProblem) = prob.toolboxes
 
-function Base.push!(prob::ContinuationProblem, tbx::AbstractToolbox)
+function add!(prob::ContinuationProblem, tbx::AbstractToolbox)
     for subprob in getsubproblems(tbx)
-        push!(prob, subprob)
+        addfunc!(prob, subprob)
     end
     push!(prob.toolboxes, tbx)
-    return prob
+    return tbx
 end
+
+add!(prob::ContinuationProblem, u::Var) = addvar!(prob.zp, u)
+add!(prob::ContinuationProblem, f::ComputedFunction) = addfunc!(prob.zp, f)
 
 """
     getoption(prob, toolbox, key; default=nothing)

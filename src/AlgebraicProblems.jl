@@ -10,14 +10,15 @@ form
 """
 module AlgebraicProblems
 
-using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
+using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem,
+    EmbeddedFunction
 import ..NumericalContinuation: getsubproblems
-using ..ZeroProblems: Var, ComputedFunction, zeroproblem, addparameter, nextproblemname
+using ..ZeroProblems: Var, ComputedFunction, zeroproblem, addparameter
 import ..ZeroProblems: evaluate!
 
 export AlgebraicProblem, AlgebraicProblem!
 
-struct AlgebraicZeroProblem{F, U, P}
+struct AlgebraicZeroProblem{F, U, P} <: EmbeddedFunction
     f!::F
 end
 
@@ -34,7 +35,7 @@ function algebraiczeroproblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union
     U = u0 isa Vector ? Vector : Number  # give the user provided function the input expected
     P = p0 isa Vector ? Vector : Number
     alg = AlgebraicZeroProblem{typeof(f!), U, P}(f!)
-    return zeroproblem(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), inplace=true, name=name)
+    return zeroproblem(alg, NamedTuple{(Symbol(name, "_", :u), Symbol(name, "_", :p))}((u0, p0)), fdim=length(u0), name=name)
 end
 
 _convertto(T, val) = val
@@ -70,9 +71,7 @@ struct AlgebraicProblem{T} <: AbstractToolbox{T}
     mfuncs::Vector{ComputedFunction{T}}
 end
 
-const ALGEBRAICPROBLEM = :alg
-
-function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=nothing, name=ALGEBRAICPROBLEM)
+function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Number, Vector{<: Number}}; pnames=nothing, name)
     if (pnames !== nothing) && (length(p0) !== length(pnames))
         throw(ArgumentError("p0 and pnames are not the same length ($(length(p0)) and $(length(pnames)) respectively)"))
     end
@@ -85,13 +84,6 @@ function AlgebraicProblem(f, u0::Union{Number, Vector{<: Number}}, p0::Union{Num
         push!(mfuncs, addparameter(Var(Symbol(""), 1, parent=p, offset=i-1), name=_pnames[i]))
     end
     return AlgebraicProblem{T}(name, efunc, mfuncs)
-end
-
-function AlgebraicProblem!(prob::AbstractContinuationProblem, args...; name=nothing, kwargs...)
-    _name = name === nothing ? nextproblemname(prob, ALGEBRAICPROBLEM) : name
-    subprob = AlgebraicProblem(args...; name=_name, kwargs...)
-    push!(prob, subprob)
-    return subprob
 end
 
 getsubproblems(alg::AlgebraicProblem) = [alg.efunc; alg.mfuncs]
