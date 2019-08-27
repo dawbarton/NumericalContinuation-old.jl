@@ -11,9 +11,9 @@ import ForwardDiff
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction,
     EmbeddedFunction, NonEmbeddedFunction
 export evaluate!, evaluate_embedded!, evaluate_nonembedded!, fdim, udim, fidxrange, 
-    uidxrange, dependencies, addparameter, addparameter!, getvar, getfunc, 
-    hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem, zeroproblem!, 
-    monitorfunction, monitorfunction!, addfunc!, addvar!
+    uidxrange, dependencies, addparameter, addparameter!, getvar, getvars, 
+    getfunc, getfuncs, hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem,
+    zeroproblem!, monitorfunction, monitorfunction!, addfunc!, addvar!
 
 #--- Forward definitions
 
@@ -485,9 +485,15 @@ getvar(zp::ExtendedZeroProblem, u::Symbol) = zp.usym[u]
 getvar(zp::ExtendedZeroProblem, u::Var) = u
 getvar(prob::AbstractContinuationProblem, u) = getvar(getzeroproblem(prob), u)
 
+getvars(zp::ExtendedZeroProblem) = collect(keys(zp.usym))
+getvars(prob::AbstractContinuationProblem) = getvars(getzeroproblem(prob))
+
 getfunc(zp::ExtendedZeroProblem, f::Symbol) = zp.fsym[f]
 getfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f
 getfunc(prob::AbstractContinuationProblem, f) = getfunc(getzeroproblem(prob), f)
+
+getfuncs(zp::ExtendedZeroProblem) = collect(keys(zp.fsym))
+getfuncs(prob::AbstractContinuationProblem) = getfuncs(getzeroproblem(prob))
 
 hasvar(zp::ExtendedZeroProblem, u::Symbol) = u in keys(zp.usym)
 hasvar(zp::ExtendedZeroProblem, u::Var) = u in zp.u

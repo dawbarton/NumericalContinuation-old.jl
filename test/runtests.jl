@@ -31,16 +31,16 @@ end
 
 @testset "Cylinder/plane intersection" begin
     prob = ContinuationProblem()
-    circle = add!(prob, zeroproblem((res, u) -> res[1] = u[1]^2 + u[2]^2 - 1, [1, 0], name=:circle, fdim=1))
+    add!(prob, zeroproblem((res, u) -> res[1] = u[1]^2 + u[2]^2 - 1, [1, 0], name=:circle, fdim=1))
     @test_throws ArgumentError plane = zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (circle, [-1]), name=:plane, fdim=1)
-    plane = add!(prob, zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (circle[1], [-1]), name=:plane, fdim=1))
+    add!(prob, zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (getvar(prob, :circle_u1), [-1]), name=:plane, fdim=1))
     @test udim(prob) == 3
     @test fdim(prob) == 2
     res0 = zeros(2)
     zp = getzeroproblem(prob)
     ZeroProblems.evaluate_embedded!(res0, zp, [0.1, 0.2, 0.3])
     @test res0 ≈ [-0.95, 0.6]
-    solve!(prob, plane[2])
+    solve!(prob, :plane_u2)
     # prob will now have been specialized; but extra monitor vars have been added so extra data is needed
     res = zeros(fdim(prob))
     zp = getzeroproblem(prob)  # zp might have changed during the solve!

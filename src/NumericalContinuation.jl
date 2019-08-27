@@ -27,7 +27,7 @@ export ContinuationProblem
 
 # Core functionality - functions
 export getvar, getzeroproblem, getatlas, udim, fdim, solve!, setoption!, 
-    getoption, add!
+    getoption, add!, getvars, getfuncs
 
 # Toolboxes
 export AlgebraicProblems
