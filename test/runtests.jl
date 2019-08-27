@@ -32,7 +32,7 @@ end
 @testset "Cylinder/plane intersection" begin
     prob = ContinuationProblem()
     add!(prob, zeroproblem((res, u) -> res[1] = u[1]^2 + u[2]^2 - 1, [1, 0], name=:circle, fdim=1))
-    @test_throws ArgumentError plane = zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (circle, [-1]), name=:plane, fdim=1)
+    @test_throws ArgumentError plane = zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (prob, [-1]), name=:plane, fdim=1)
     add!(prob, zeroproblem((res, u, z) -> res[1] = u[1] + u[2] + z[1], (getvar(prob, :circle_u1), [-1]), name=:plane, fdim=1))
     @test udim(prob) == 3
     @test fdim(prob) == 2
