@@ -610,14 +610,14 @@ end
 addfunc!(prob::AbstractContinuationProblem, f::ComputedFunction) = addfunc!(getzeroproblem(prob), f)
 
 eval_embedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.embed, u, args...)
-eval_embedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob).embed, u, args...)
+eval_embedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate_embedded!(res, getzeroproblem(prob), u, args...)
 eval_nonembedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.nonembed, u, args...)
-eval_nonembedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob).nonembed, u, args...)
+eval_nonembedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate_nonembedded!(res, getzeroproblem(prob), u, args...)
 
 initialdata_embedded(zp::ExtendedZeroProblem) = initialdata(zp.embed)
-initialdata_embedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob).embed)
+initialdata_embedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob))
 initialdata_nonembedded(zp::ExtendedZeroProblem) = initialdata(zp.nonembed)
-initialdata_nonembedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob).nonembed)
+initialdata_nonembedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob))
 
 #--- NonEmbedded functions
 
