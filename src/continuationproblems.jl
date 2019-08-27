@@ -78,9 +78,9 @@ add!(prob::ContinuationProblem, f::ComputedFunction) = addfunc!(prob.zp, f)
 
 Get the value of a user-supplied toolbox option.
 """
-function getoption(prob::ContinuationProblem, toolbox::Symbol, key::Symbol; default=nothing)
+function getoption(prob::ContinuationProblem, toolbox::Symbol, key::Symbol; default, T=typeof(default))
     tbxoptions = get(prob.options, toolbox, nothing)
-    return tbxoptions === nothing ? default : get(tbxoptions, key, default)
+    return tbxoptions === nothing ? default : convert(T, get(tbxoptions, key, default))
 end
 
 """
