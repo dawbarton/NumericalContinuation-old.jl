@@ -14,13 +14,6 @@ function specialize end
 specialize(prob) = prob  # default fall-back
 
 """
-    setuseroptions(tbx, values::Dict{Symbol, Any})
-
-Set the internal options of a toolbox structure.
-"""
-function setuseroptions! end  
-
-"""
     numtype(x)
 
 Return the underlying number type used by `x`.

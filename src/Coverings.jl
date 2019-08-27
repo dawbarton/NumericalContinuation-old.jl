@@ -7,10 +7,11 @@ Continuation.
 """
 module Coverings
 
-using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction, addfunc!, 
-    initialdata, uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate!
+using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction, 
+    addfunc!, initialdata_embedded, initialdata_nonembedded, initialvar, 
+    uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate_embedded!
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
-    getoption, getzeroproblem
+    getoption, getzeroproblem, numtype
 
 using LinearAlgebra
 
@@ -20,7 +21,7 @@ export Atlas, Chart
 
 #--- Chart
 
-mutable struct Chart{T, D <: Tuple}
+mutable struct Chart{T, DE, DN}
     pt::Int64
     pt_type::Symbol
     ep_flag::Bool
@@ -30,9 +31,13 @@ mutable struct Chart{T, D <: Tuple}
     t::Vector{T}  # normalized tangent vector
     s::Int64
     R::T
-    data::D
+    data_embed::DE
+    data_nonembed::DN
 end
-Chart(; pt=-1, pt_type=:unknown, ep_flag=false, status=:new, u, TS, t, s=1, R, data=()) = Chart(pt, pt_type, ep_flag, status, u, TS, t, s, R, data)
+
+# NOTE: for the moment don't specialize on data_embed or data_nonembed; it might not reduce runtime much while increasing compile time
+Chart(; pt=-1, pt_type=:unknown, ep_flag=false, status=:new, u, TS, t, s=1, R::T, data_embed=(), data_nonembed=()) where T = 
+    Chart(pt, pt_type, ep_flag, status, u, TS, t, s, R, data_embed, data_nonembed)
 
 #--- Projection condition (pseudo-arclength equation)
 
@@ -41,7 +46,8 @@ struct PrCond{T}
     TS::Vector{T}
 end
 
-function PrCond(prob::AbstractContinuationProblem{T}) where T
+function PrCond(prob::AbstractContinuationProblem)
+    T = numtype(prob)
     n = udim(prob)
     return PrCond{T}(zeros(T, n), zeros(T, n))
 end
@@ -83,7 +89,8 @@ mutable struct AtlasOptions{T}
     prcond::Any
 end
 
-function AtlasOptions(prob::AbstractContinuationProblem{T}) where T
+function AtlasOptions(prob::AbstractContinuationProblem)
+    T = numtype(prob)
     # Where possible, use numbers that can be exactly represented with a Float64
     correctinitial = getoption(prob, :atlas, :correctinitial, default=true)
     initialstep = getoption(prob, :atlas, :initialstep, default=T(1/2^6))
@@ -109,17 +116,17 @@ end
 
 $(fieldnames(AtlasOptions))
 """
-mutable struct Atlas{T, D, P} <: AbstractAtlas{T}
-    charts::Vector{Chart{T, D}}
-    currentchart::Chart{T, D}
+mutable struct Atlas{T, C, P} <: AbstractAtlas
+    charts::Vector{C}
+    currentchart::C
     prcond::P
     prcondzp::ComputedFunction{T, MonitorFunction{T, P}}
-    currentcurve::Vector{Chart{T, D}}
+    currentcurve::Vector{C}
     options::AtlasOptions{T}
     contvar::Var{T}
 end
 
-function Atlas(prob::AbstractContinuationProblem{T}, contvar::Var{T}) where T
+function Atlas(prob::AbstractContinuationProblem, contvar::Var{T}) where T
     # Set up the options
     options = AtlasOptions(prob)
     # Add the projection condition to the zero problem
@@ -132,12 +139,15 @@ function Atlas(prob::AbstractContinuationProblem{T}, contvar::Var{T}) where T
         throw(ErrorException("Dimension mismatch; expected number of equations to match number of continuation variables"))
     end
     # Put the initial guess into a chart structure
-    initial = initialdata(zp)
-    @assert length(initial.u) == n
-    currentchart = Chart(pt=0, pt_type=:IP, u=initial.u, TS=initial.TS, t=zeros(T, n),
-        data=initial.data, R=options.initialstep, s=options.initialdirection)
+    iu = initialvar(zp)
+    id_embed = initialdata_embedded(zp)
+    id_nonembed = initialdata_nonembedded(zp)
+    @assert length(iu.u) == n
+    currentchart = Chart(pt=0, pt_type=:IP, u=iu.u, TS=iu.TS, t=zeros(T, n),
+        data_embed=id_embed, data_nonembed=id_nonembed, R=options.initialstep, 
+        s=options.initialdirection)
     currentchart.t .= currentchart.TS.*currentchart.s
-    normTS = norm(initial.TS)
+    normTS = norm(iu.TS)
     if normTS > 0
         initial.t ./= normTS
     end
@@ -219,7 +229,7 @@ function correct!(atlas::Atlas, prob, nextstate)
     # Solve zero problem
     zp = getzeroproblem(prob)
     chart = atlas.currentchart
-    sol = nlsolve((res, u) -> evaluate!(res, zp, u, prob, chart.data), chart.u)
+    sol = nlsolve((res, u) -> evaluate_embedded!(res, zp, u, prob, chart.data_embed), chart.u)
     if converged(sol)
         chart.u .= sol.zero
         chart.status = :corrected
@@ -264,7 +274,7 @@ function addchart!(atlas::Atlas{T}, prob, nextstate) where T
         chart.ep_flag = true
     end
     # Update the tangent vector
-    dfdu = jacobian_ad(zp, chart.u, prob, chart.data)
+    dfdu = jacobian_ad(zp, chart.u, prob, chart.data_embed)
     dfdp = zeros(T, length(chart.u))
     dfdp[fidxrange(atlas.prcondzp)] .= one(T)
     chart.TS .= dfdu \ dfdp

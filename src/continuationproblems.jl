@@ -1,25 +1,26 @@
 """
-    AbstractContinuationProblem{T}
+    AbstractContinuationProblem
 
-Super-type of all continuation problems, where `T` is the underlying numerical
-type.
+Super-type of all continuation problems.
 
 # Interface
 
 All subtypes are expected to implement:
 
+* `numtype`
 * `getatlas`
 * `getzeroproblem`
 * `gettoolboxes`
 * `getoption`
 * `setoption!`
+* `add!`
 * `solve!`
 """
 AbstractContinuationProblem
 
 # (prob::T)(args...; kwargs...) where T <: AbstractContinuationProblem = solve!(prob, args...; kwargs...)
 
-mutable struct ContinuationProblem{T} <: AbstractContinuationProblem{T}
+mutable struct ContinuationProblem{T} <: AbstractContinuationProblem
     solved::Bool
     options::Dict{Symbol, Dict{Symbol, Any}}
     atlas::Any
@@ -54,6 +55,8 @@ function Base.show(io::IO, prob::ContinuationProblem{T}) where T
     print(io, join([string(tbx) for tbx in prob.toolboxes], ", "))
     print(io, "])")
 end
+
+numtype(::ContinuationProblem{T}) where T = T
 
 getatlas(prob::ContinuationProblem) = prob.atlas  # TODO: check for usage since it will return ::Any
 getzeroproblem(prob::ContinuationProblem) = prob.zp

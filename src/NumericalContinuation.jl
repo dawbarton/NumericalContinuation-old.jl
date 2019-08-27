@@ -1,9 +1,9 @@
 module NumericalContinuation
 
 # Top-level abstract types
-abstract type AbstractContinuationProblem{T} end
-abstract type AbstractToolbox{T} end
-abstract type AbstractAtlas{T} end
+abstract type AbstractContinuationProblem end
+abstract type AbstractToolbox{T} end  # NOTE: leave parametric type to save user implementations of numtype
+abstract type AbstractAtlas end
 
 include("utilities.jl")
 

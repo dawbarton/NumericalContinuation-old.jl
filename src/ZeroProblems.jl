@@ -10,7 +10,7 @@ import ForwardDiff
 
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction,
     EmbeddedFunction, NonEmbeddedFunction
-export evaluate!, eval_embedded!, eval_nonembedded!, fdim, udim, fidxrange, 
+export evaluate!, evaluate_embedded!, evaluate_nonembedded!, fdim, udim, fidxrange, 
     uidxrange, dependencies, addparameter, addparameter!, getvar, getfunc, 
     hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem, zeroproblem!, 
     monitorfunction, monitorfunction!, addfunc!, addvar!
@@ -375,7 +375,7 @@ function addfunc!(fc::FunctionCollection{T, Nothing}, f::ComputedFunction{T}) wh
         end
         fc.fsym[name] = f
     end
-    return fc
+    return f
 end
 
 function evaluate!(res, fc::FunctionCollection{T, Nothing}, u, prob=nothing, data=nothing) where T
@@ -607,8 +607,10 @@ end
 
 addfunc!(prob::AbstractContinuationProblem, f::ComputedFunction) = addfunc!(getzeroproblem(prob), f)
 
-eval_embedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.embed, u, args...)
-eval_nonembedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.nonembed, u, args...)
+evaluate_embedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.embed, u, args...)
+evaluate_nonembedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.nonembed, u, args...)
+
+jacobian_ad(zp::ExtendedZeroProblem, u, args...) = jacobian_ad(zp.embed, u, args...)
 
 initialdata_embedded(zp::ExtendedZeroProblem) = initialdata(zp.embed)
 initialdata_nonembedded(zp::ExtendedZeroProblem) = initialdata(zp.nonembed)
