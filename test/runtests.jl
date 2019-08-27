@@ -22,8 +22,9 @@ end
     f = (u, p) -> u^3 - p
     add!(prob, AlgebraicProblem(f, 1.5, 1.0, pnames=[:μ], name=:alg))
     res = zeros(fdim(prob))
-    data = ZeroProblems.initialdata(getzeroproblem(prob))
-    evaluate!(res, prob, data.u, prob, data.data)
+    data = ZeroProblems.initialdata_embedded(prob)
+    u = ZeroProblems.initialvar(prob).u
+    eval_embedded!(res, prob, u, prob, data)
     @test res ≈ [1.5^3-1.0, 0.0]
 end
 

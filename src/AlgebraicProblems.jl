@@ -10,10 +10,9 @@ form
 """
 module AlgebraicProblems
 
-using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem,
-    EmbeddedFunction
+using ..NumericalContinuation: numtype, AbstractToolbox, AbstractContinuationProblem
 import ..NumericalContinuation: getsubproblems
-using ..ZeroProblems: Var, ComputedFunction, zeroproblem, addparameter
+using ..ZeroProblems: Var, ComputedFunction, EmbeddedFunction, zeroproblem, addparameter
 import ..ZeroProblems: evaluate!
 
 export AlgebraicProblem, AlgebraicProblem!

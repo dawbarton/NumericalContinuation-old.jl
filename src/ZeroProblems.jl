@@ -10,67 +10,12 @@ import ForwardDiff
 
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction,
     EmbeddedFunction, NonEmbeddedFunction
-export evaluate!, fdim, udim, fidxrange, uidxrange, dependencies, addparameter, 
-    addparameter!, getvar, getfunc, hasvar, hasfunc, setvaractive!, 
-    isvaractive, zeroproblem, zeroproblem!, monitorfunction, monitorfunction!,
-    addfunc!, addvar!
+export evaluate!, eval_embedded!, eval_nonembedded!, fdim, udim, fidxrange, 
+    uidxrange, dependencies, addparameter, addparameter!, getvar, getfunc, 
+    hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem, zeroproblem!, 
+    monitorfunction, monitorfunction!, addfunc!, addvar!
 
 #--- Forward definitions
-
-"""
-    dependencies(z)
-
-Return the variable dependencies of a zero problem.
-"""
-function dependencies end
-
-"""
-    passproblem(z)
-
-A trait to determine whether the full problem structure is passed down to a
-particular subtype of AbstractZeroProblem. The default is false.
-
-Also see `passdata`.
-
-# Example
-
-A ComputedFunction containing the pseudo-arclength equation might require the
-current tangent vector (which can be extracted from the problem structure) and
-so it defines
-
-```
-passproblem(z::Type{PseudoArclength}) = true
-```
-"""
-passproblem(z) = false
-
-"""
-    passdata(z)
-
-A trait to determine whether the function data is passed down to a particular
-subtype of AbstractZeroProblem. The default is false.
-
-Also see `passproblem`.
-
-# Example
-
-A ComputedFunction containing collocation equations might require the time
-discretization which it stores in its own data structure and so it defines
-
-```
-passdata(z::Type{Collocation}) = true
-```
-"""
-passdata(z) = false
-
-"""
-    evaluate!(res, [J], z, u, [prob])
-
-Return the residual (inplace), and optionally the Jacobian, of the ExtendedZeroProblem
-z with the input u. Some ExtendedZeroProblems also require the problem structure
-`prob` to be passed.
-"""
-function evaluate! end
 
 """
     fdim(f)
@@ -85,14 +30,6 @@ function fdim end
 Return the dimension of the variables contained within `u`.
 """
 function udim end
-
-"""
-    initialdata(prob)
-
-Return the initial data (solution, tangent, toolbox data) used for initialising
-the continuation.
-"""
-initialdata(prob) = nothing
 
 #--- Variables that zero problems depend on
 
@@ -157,10 +94,9 @@ end
 
 Base.nameof(u::Var) = u.name
 udim(u::Var) = u.len
-initialdata(u::Var) = (u=u.u0, TS=u.t0)
+initialvar(u::Var) = (u=u.u0, TS=u.t0)
 numtype(u::Var{T}) where T = T
 Base.parent(u::Var) = u.parent
-uidx(u::Var) = u.idx
 uidxrange(u::Var) = u.idxrange
 
 function Base.show(io::IO, u::Var{T}) where T
@@ -217,19 +153,71 @@ end
 Base.nameof(prob::ComputedFunction) = prob.name
 dependencies(prob::ComputedFunction) = prob.deps
 fdim(prob::ComputedFunction) = prob.fdim
-initialdata(prob::ComputedFunction) = initialdata(prob.f!)
 numtype(prob::ComputedFunction{T}) where T = T
 Base.getindex(prob::ComputedFunction, idx::Integer) = getindex(prob.deps, idx)
 Base.getindex(prob::ComputedFunction, sym::Symbol) = prob.vars[sym]
-fidx(prob::ComputedFunction) = prob.idx
 fidxrange(prob::ComputedFunction) = prob.idxrange
 getfunc(prob::ComputedFunction) = prob.f!
 
-evaluate!(res, f!, u...) = f!(res, u...)
+evaluate!(res, f!::AbstractFunction, u...) = f!(res, u...)
 evaluate!(res, prob::ComputedFunction, u...) = evaluate!(res, prob.f!, u...)
 
-passdata(::Type{<: ComputedFunction{T, F}}) where {T, F} = passdata(F)
+"""
+    passproblem(::Type{MyProblem})
+
+A trait to determine whether the full problem structure is passed down to a
+particular `MyProblem <: AbstractFunction`. The default is `false`.
+
+Also see `passdata`.
+
+# Example
+
+A ComputedFunction might require the current tangent vector (which can be
+extracted from the problem structure) and so it defines
+
+```
+passproblem(::Type{MyProblem}) = true
+```
+"""
+function passproblem end
+
+passproblem(::Type{<: AbstractFunction}) = false
 passproblem(::Type{<: ComputedFunction{T, F}}) where {T, F} = passproblem(F)
+
+"""
+    passdata(::Type{MyProblem})
+
+A trait to determine whether the function data is passed down to a particular
+`MyProblem <: AbstractFunction`. The default is `nothing`.
+
+Also see `passproblem`.
+
+# Example
+
+A ComputedFunction containing collocation equations might require the time
+discretization which it stores in its own data structure and so it defines
+
+```
+passdata(::Type{Collocation}) = true
+```
+"""
+function passdata end
+
+passdata(::Type{<: AbstractFunction}) = false
+passdata(::Type{<: ComputedFunction{T, F}}) where {T, F} = passdata(F)
+
+
+"""
+    initialdata(prob)
+
+Return the initial function data for the given function or function collection.
+
+Also see `initialdata_embedded` and `initialdata_nonembedded`.
+"""
+function initialdata end
+
+initialdata(::Any) = nothing  # cannot be restricted to AbstractFunctions because of MonitorFunction needing to delegate to a wider variety of 
+initialdata(prob::ComputedFunction) = initialdata(prob.f!)
 
 #--- ZeroProblem
 
@@ -270,15 +258,17 @@ end
 
 zeroproblem(f!, u0; t0=nothing, kwargs...) = zeroproblem(f!, (u0,); t0=(t0,), kwargs...)
 
-#--- MonitorFunction
+#--- AbstractMonitorFunction and MonitorFunction
 
-mutable struct MonitorFunction{T, F} <: EmbeddedFunction
+abstract type AbstractMonitorFunction <: EmbeddedFunction end
+
+mutable struct MonitorFunction{T, F} <: AbstractMonitorFunction
     f::F
     u::Var{T}
 end
 
 function monitorfunction(f, u0::NTuple{N, Var{T}}; name, active=false, initialvalue=nothing) where {N, T}
-    iv = initialvalue === nothing ? f((initialdata(u).u for u in u0)...) : initialvalue
+    iv = initialvalue === nothing ? f((initialvar(u).u for u in u0)...) : initialvalue
     udim = active ? 1 : 0
     u = Var(name, udim, u0=T[iv], t0=T[0])
     mfunc = MonitorFunction(f, u)
@@ -292,27 +282,14 @@ passproblem(::Type{<: MonitorFunction}) = true
 
 function initialdata(zp::ComputedFunction{T, <: MonitorFunction}) where T
     mfunc = getfunc(zp)
-    μ = initialdata(mfunc.u).u[1]
-    fdata = initialdata(mfunc.f)
-    return (Ref(μ), fdata)
+    μ = initialvar(mfunc.u).u[1]
+    return Ref(μ)
 end
 
 function evaluate!(res, mfunc::MonitorFunction, prob, data, um, u...)
-    mu = isempty(um) ? data[1][] : um[1]
-    _passdata = passdata(typeof(mfunc.f))
-    _passprob = passproblem(typeof(mfunc.f))
-    if _passdata
-        if _passprob
-            res[1] = mfunc.f(prob, data[2], u...) - mu
-        else
-            res[1] = mfunc.f(data[2], u...) - mu
-        end
-    elseif _passprob
-        res[1] = mfunc.f(prob, u...) - mu
-    else
-        res[1] = mfunc.f(u...) - mu
-    end
-    return nothing
+    mu = isempty(um) ? data[] : um[1]
+    res[1] = mfunc.f(u...) - mu
+    return res
 end
 
 #--- ParameterFunction - a specialized MonitorFunction for adding continuation parameters
@@ -386,10 +363,10 @@ function addfunc!(fc::FunctionCollection{T, Nothing}, f::ComputedFunction{T}) wh
         push!(depidx, ui)
     end
     last = fc.fdim[]
-    fdim = fdim(f)
+    dim = fdim(f)
     f.idx = lastindex(push!(fc.f, f))
-    f.idxrange = (last + 1):(last + fdim)
-    fc.fdim[] = last + fdim
+    f.idxrange = (last + 1):(last + dim)
+    fc.fdim[] = last + dim
     push!(fc.fdeps, (depidx...,))
     name = nameof(f)
     if name !== Symbol("")
@@ -443,8 +420,6 @@ end
     # @show body
     body
 end
-
-evaluate!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob), u, args...)
 
 function jacobian!(J, fc::FunctionCollection{T}, u, args...) where T
     # A simple forward difference
@@ -602,6 +577,8 @@ function initialvar(zp::ExtendedZeroProblem{T}) where T
     return (u=u, TS=t)
 end
 
+initialvar(prob::AbstractContinuationProblem) = initialvar(getzeroproblem(prob))
+
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
     u.len = active ? 1 : 0
     update_uidxrange!(zp)
@@ -613,7 +590,7 @@ setvaractive!(prob::AbstractContinuationProblem, u, active) = setvaractive!(getz
 
 isvaractive(u) = u.len > 0
 
-function addfunc!(zp::ExtendedZeroProblem, f::ComputedFunction)
+function addfunc!(zp::ExtendedZeroProblem, f::ComputedFunction{<:Any, F}) where F
     if nameof(f) in keys(zp.fsym)
         @warn "Duplicate function name in ExtendedZeroProblem" f
     end
@@ -621,9 +598,9 @@ function addfunc!(zp::ExtendedZeroProblem, f::ComputedFunction)
         addvar!(zp, u)
     end
     zp.fsym[nameof(f)] = f
-    if f isa EmbeddedFunction
+    if F <: EmbeddedFunction
         addfunc!(zp.embed, f)
-    elseif f isa NonEmbeddedFunction
+    elseif F <: NonEmbeddedFunction
         addfunc!(zp.nonembed, f)
     else
         throw(ArgumentError("Unknown function type - should be a subtype of either an EmbeddedFunction or a NonEmbeddedFunction"))
@@ -631,6 +608,16 @@ function addfunc!(zp::ExtendedZeroProblem, f::ComputedFunction)
 end
 
 addfunc!(prob::AbstractContinuationProblem, f::ComputedFunction) = addfunc!(getzeroproblem(prob), f)
+
+eval_embedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.embed, u, args...)
+eval_embedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob).embed, u, args...)
+eval_nonembedded!(res, zp::ExtendedZeroProblem, u, args...) = evaluate!(res, zp.nonembed, u, args...)
+eval_nonembedded!(res, prob::AbstractContinuationProblem, u, args...) = evaluate!(res, getzeroproblem(prob).nonembed, u, args...)
+
+initialdata_embedded(zp::ExtendedZeroProblem) = initialdata(zp.embed)
+initialdata_embedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob).embed)
+initialdata_nonembedded(zp::ExtendedZeroProblem) = initialdata(zp.nonembed)
+initialdata_nonembedded(prob::AbstractContinuationProblem) = initialdata(getzeroproblem(prob).nonembed)
 
 #--- NonEmbedded functions
 
