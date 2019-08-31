@@ -1,11 +1,6 @@
 module NumericalContinuation
 
-# Top-level abstract types
-abstract type AbstractContinuationProblem end
-abstract type AbstractToolbox{T} end  # NOTE: leave parametric type to save user implementations of numtype
-abstract type AbstractAtlas end
-
-include("utilities.jl")
+include("forwarddefinitions.jl")
 
 include("ZeroProblems.jl")
 using .ZeroProblems
@@ -16,8 +11,10 @@ using .Coverings
 include("continuationproblems.jl")
 include("toolboxes.jl")
 
-include("AlgebraicProblems.jl")
+include("Extras.jl")
+using .Extras
 
+include("AlgebraicProblems.jl")
 
 # Core functionality - modules
 export Coverings, ZeroProblems
@@ -27,7 +24,7 @@ export ContinuationProblem
 
 # Core functionality - functions
 export getvar, getzeroproblem, getatlas, udim, fdim, solve!, setoption!, 
-    getoption, add!, getvars, getfuncs
+    getoption, add!, getvars, getfuncs, l2norm
 
 # Toolboxes
 export AlgebraicProblems

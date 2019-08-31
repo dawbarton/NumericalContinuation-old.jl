@@ -9,7 +9,8 @@ module Coverings
 
 using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction, 
     addfunc!, initialdata_embedded, initialdata_nonembedded, initialvar, 
-    uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate_embedded!
+    uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate_embedded!,
+    evaluate_nonembedded!, EmbeddedFunction, NonEmbeddedFunction
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
     getoption, getzeroproblem, numtype
 
@@ -31,13 +32,14 @@ mutable struct Chart{T, DE, DN}
     t::Vector{T}  # normalized tangent vector
     s::Int64
     R::T
+    uc::Vector{T}  # output of non-embedded functions
     data_embed::DE
     data_nonembed::DN
 end
 
 # NOTE: for the moment don't specialize on data_embed or data_nonembed; it might not reduce runtime much while increasing compile time
-Chart(; pt=-1, pt_type=:unknown, ep_flag=false, status=:new, u, TS, t, s=1, R::T, data_embed=(), data_nonembed=()) where T = 
-    Chart(pt, pt_type, ep_flag, status, u, TS, t, s, R, data_embed, data_nonembed)
+Chart(; pt=-1, pt_type=:unknown, ep_flag=false, status=:new, u, TS, t, s=1, R::T, uc, data_embed=(), data_nonembed=()) where T = 
+    Chart(pt, pt_type, ep_flag, status, u, TS, t, s, R, uc, data_embed, data_nonembed)
 
 #--- Projection condition (pseudo-arclength equation)
 
@@ -135,9 +137,10 @@ function Atlas(prob::AbstractContinuationProblem, contvar::Var{T}) where T
     # Check dimensionality
     zp = getzeroproblem(prob)
     n = udim(zp)
-    if n != fdim(zp)
+    if n != fdim(zp, EmbeddedFunction)
         throw(ErrorException("Dimension mismatch; expected number of equations to match number of continuation variables"))
     end
+    nc = fdim(zp, NonEmbeddedFunction)
     # Put the initial guess into a chart structure
     iu = initialvar(zp)
     id_embed = initialdata_embedded(zp)
@@ -145,7 +148,7 @@ function Atlas(prob::AbstractContinuationProblem, contvar::Var{T}) where T
     @assert length(iu.u) == n
     currentchart = Chart(pt=0, pt_type=:IP, u=iu.u, TS=iu.TS, t=zeros(T, n),
         data_embed=id_embed, data_nonembed=id_nonembed, R=options.initialstep, 
-        s=options.initialdirection)
+        s=options.initialdirection, uc=zeros(T, nc))
     currentchart.t .= currentchart.TS.*currentchart.s
     normTS = norm(iu.TS)
     if normTS > 0
@@ -302,6 +305,9 @@ function addchart!(atlas::Atlas{T}, prob, nextstate) where T
         end
         chart.R = clamp(opt.ga*mult*chart.R, opt.stepmin, opt.stepmax)
     end
+    # Update non-embedded functions
+    evaluate_nonembedded!(chart.uc, zp, chart.u, prob, chart.data_nonembed)
+    # Store
     push!(atlas.currentcurve, chart)
     nextstate[] =  flush!
     return

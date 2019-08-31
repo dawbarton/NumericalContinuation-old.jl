@@ -222,7 +222,7 @@ initialdata(prob::ComputedFunction) = initialdata(prob.f!)
 #--- ZeroProblem
 
 """
-    ZeroProblem{T, F}
+    ZeroProblem{F}
 
 ZeroProblem is a lightweight wrapper for a function to signal that it is an
 EmbeddedFunction. This is largely for user-defined functions for which
@@ -623,7 +623,9 @@ initialdata_nonembedded(zp::ExtendedZeroProblem) = initialdata(zp.nonembed)
 
 #--- NonEmbedded functions
 
-struct RegularFunction{T, F} <: NonEmbeddedFunction
+abstract type AbstractRegularFunction <: NonEmbeddedFunction end
+
+struct RegularFunction{T, F} <: AbstractRegularFunction
     f::F
 end
 
@@ -633,7 +635,9 @@ function regularfunction(f, u::NTuple{N, Var{T}}; name, kwargs...) where {N, T}
     ComputedFunction(RegularFunction{T}(f), u; name=name, kwargs...)
 end
 
-struct SingularFunction{T, F} <: NonEmbeddedFunction
+abstract type AbstractSingularFunction <: NonEmbeddedFunction end
+
+struct SingularFunction{T, F} <: AbstractSingularFunction
     f::F
 end
 
