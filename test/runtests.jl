@@ -90,4 +90,6 @@ end
     @test hasvar(prob, func[:circle_u1])
     @test hasvar(prob, :circle_u1)
     @test !hasvar(prob, :random)
+    @test isembedded(prob[:circle])
+    @test nameof(prob[:circle][:circle_u1]) === :circle_u1
 end
