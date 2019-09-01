@@ -9,7 +9,7 @@ module Coverings
 
 using ..ZeroProblems: Var, ComputedFunction, MonitorFunction, monitorfunction, 
     addfunc!, initialdata_embedded, initialdata_nonembedded, initialvar, 
-    uidxrange, fidxrange, udim, fdim, jacobian_ad, getvar, evaluate_embedded!,
+    uidx, fidx, udim, fdim, jacobian_ad, getvar, evaluate_embedded!,
     evaluate_nonembedded!, EmbeddedFunction, NonEmbeddedFunction
 using ..NumericalContinuation: AbstractContinuationProblem, AbstractAtlas, 
     getoption, getzeroproblem, numtype
@@ -65,7 +65,7 @@ end
 function initial_prcond!(prcond::PrCond{T}, chart::Chart, contvar::Var) where T
     prcond.u .= chart.u
     prcond.TS .= zero(T)
-    prcond.TS[uidxrange(contvar)] .= one(T)
+    prcond.TS[uidx(contvar)] .= one(T)
     return
 end
 
@@ -279,7 +279,7 @@ function addchart!(atlas::Atlas{T}, prob, nextstate) where T
     # Update the tangent vector
     dfdu = jacobian_ad(zp, chart.u, prob, chart.data_embed)
     dfdp = zeros(T, length(chart.u))
-    dfdp[fidxrange(atlas.prcondzp)] .= one(T)
+    dfdp[fidx(atlas.prcondzp)] .= one(T)
     chart.TS .= dfdu \ dfdp
     chart.t .= chart.s.*chart.TS./norm(chart.TS)
     opt = atlas.options

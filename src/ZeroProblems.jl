@@ -10,8 +10,8 @@ import ForwardDiff
 
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction,
     EmbeddedFunction, NonEmbeddedFunction
-export evaluate!, evaluate_embedded!, evaluate_nonembedded!, fdim, udim, fidxrange, 
-    uidxrange, dependencies, parameter, getvar, getvars, 
+export evaluate!, evaluate_embedded!, evaluate_nonembedded!, fdim, udim, fidx, 
+    uidx, dependencies, parameter, getvar, getvars, isembedded,
     getfunc, getfuncs, hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem,
     zeroproblem!, monitorfunction, monitorfunction!, addfunc!, addvar!
 
@@ -97,7 +97,7 @@ udim(u::Var) = u.len
 initialvar(u::Var) = (u=u.u0, TS=u.t0)
 numtype(u::Var{T}) where T = T
 Base.parent(u::Var) = u.parent
-uidxrange(u::Var) = u.idxrange
+uidx(u::Var) = u.idxrange
 
 function Base.show(io::IO, u::Var{T}) where T
     _T = T === Float64 ? "" : "{$(nameof(T))}"
@@ -156,8 +156,11 @@ fdim(prob::ComputedFunction) = prob.fdim
 numtype(prob::ComputedFunction{T}) where T = T
 Base.getindex(prob::ComputedFunction, idx::Integer) = getindex(prob.deps, idx)
 Base.getindex(prob::ComputedFunction, sym::Symbol) = prob.vars[sym]
-fidxrange(prob::ComputedFunction) = prob.idxrange
+fidx(prob::ComputedFunction) = prob.idxrange
 getfunc(prob::ComputedFunction) = prob.f!
+
+isembedded(prob::ComputedFunction{<:Any, <:EmbeddedFunction}) = true
+isembedded(prob::ComputedFunction) = false
 
 evaluate!(res, f!::AbstractFunction, u...) = f!(res, u...)
 evaluate!(res, prob::ComputedFunction, u...) = evaluate!(res, prob.f!, u...)
@@ -334,7 +337,7 @@ end
 
 fdim(fc::FunctionCollection) = fc.fdim[]
 
-function update_fidxrange!(fc::FunctionCollection)
+function update_fidx!(fc::FunctionCollection)
     last = 0
     for f in fc.f
         n = fdim(f)
@@ -498,6 +501,8 @@ hasfunc(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.fsym)
 hasfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f in values(zp.fsym)
 hasfunc(prob::AbstractContinuationProblem, f) = hasfunc(getzeroproblem(prob), f)
 
+Base.getindex(zp::ExtendedZeroProblem, f) = getfunc(zp, f)
+
 """
     udim(prob)
 
@@ -518,13 +523,13 @@ fdim(zp::ExtendedZeroProblem, ::Type{EmbeddedFunction}) = fdim(zp.embed)
 fdim(zp::ExtendedZeroProblem, ::Type{NonEmbeddedFunction}) = fdim(zp.nonembed)
 fdim(prob::AbstractContinuationProblem, args...) = fdim(getzeroproblem(prob), args...)
 
-function update_uidxrange!(u::Var, last::Int64)
+function update_uidx!(u::Var, last::Int64)
     n = udim(u)
     if u.parent === nothing
         ui = (last + 1):(last + n)
         last += n
     else
-        parentidx = uidxrange(u.parent)
+        parentidx = uidx(u.parent)
         start = (u.offset < 0) ? (parentidx[end] + u.offset + 1) : (parentidx[1] + u.offset)
         ui = start:(start + n - 1)
     end
@@ -532,10 +537,10 @@ function update_uidxrange!(u::Var, last::Int64)
     return last
 end
 
-function update_uidxrange!(zp::ExtendedZeroProblem)
+function update_uidx!(zp::ExtendedZeroProblem)
     last = 0
     for u in zp.u
-        last = update_uidxrange!(u, last)
+        last = update_uidx!(u, last)
     end
     zp.udim[] = last
     zp.u[1].idxrange = 1:last
@@ -549,7 +554,7 @@ function addvar!(zp::ExtendedZeroProblem, u::Var)
             throw(ArgumentError("Parent variable is not contained in the zero problem"))
         end
         u.idx = lastindex(push!(zp.u, u))
-        last = update_uidxrange!(u, zp.udim[])
+        last = update_uidx!(u, zp.udim[])
         zp.udim[] = last
         zp.u[1].idxrange = 1:last
         name = nameof(u)
@@ -580,7 +585,7 @@ end
 
 function setvaractive!(zp::ExtendedZeroProblem, u::Var, active::Bool)
     u.len = active ? 1 : 0
-    update_uidxrange!(zp)
+    update_uidx!(zp)
     return
 end
 

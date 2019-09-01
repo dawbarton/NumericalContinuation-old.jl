@@ -56,6 +56,8 @@ function Base.show(io::IO, prob::ContinuationProblem{T}) where T
     print(io, "])")
 end
 
+Base.getindex(prob::ContinuationProblem, x) = getindex(prob.zp, x)
+
 numtype(::ContinuationProblem{T}) where T = T
 
 getatlas(prob::ContinuationProblem) = prob.atlas  # TODO: check for usage since it will return ::Any
