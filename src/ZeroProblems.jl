@@ -11,7 +11,7 @@ import ForwardDiff
 export ExtendedZeroProblem, ComputedFunction, ComputedFunction!, Var, MonitorFunction,
     EmbeddedFunction, NonEmbeddedFunction
 export evaluate!, evaluate_embedded!, evaluate_nonembedded!, fdim, udim, fidxrange, 
-    uidxrange, dependencies, addparameter, addparameter!, getvar, getvars, 
+    uidxrange, dependencies, parameter, getvar, getvars, 
     getfunc, getfuncs, hasvar, hasfunc, setvaractive!, isvaractive, zeroproblem,
     zeroproblem!, monitorfunction, monitorfunction!, addfunc!, addvar!
 
@@ -295,12 +295,7 @@ end
 #--- ParameterFunction - a specialized MonitorFunction for adding continuation parameters
 
 _identitylift(x) = x[1]
-
-function addparameter(u::Var; name, active=false)
-    return monitorfunction(_identitylift, (u,), name=name, active=active)
-end
-
-addparameter!(prob::AbstractContinuationProblem, u::Var; kwargs...) = addfunc!(getzeroproblem(prob), addparameter(u; kwargs...))
+parameter(u::Var; name, active=false) = monitorfunction(_identitylift, (u,), name=name, active=active)
 
 #--- FunctionCollection - functions and their dependencies
 
@@ -500,7 +495,7 @@ hasvar(zp::ExtendedZeroProblem, u::Var) = u in zp.u
 hasvar(prob::AbstractContinuationProblem, u) = hasvar(getzeroproblem(prob), u)
 
 hasfunc(zp::ExtendedZeroProblem, f::Symbol) = f in keys(zp.fsym)
-hasfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f in zp.f
+hasfunc(zp::ExtendedZeroProblem, f::ComputedFunction) = f in values(zp.fsym)
 hasfunc(prob::AbstractContinuationProblem, f) = hasfunc(getzeroproblem(prob), f)
 
 """

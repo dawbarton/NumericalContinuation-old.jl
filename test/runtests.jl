@@ -70,3 +70,24 @@ end
     @test all(@. isapprox(ux^2 + uy^2 - 1, 0, atol=1e-6))  # on the manifold (1)
     @test all(@. isapprox(ux + uy + uz, 0, atol=1e-6))  # on the manifold (2)
 end
+
+@testset "ZeroProblems coverage" begin
+    @test_throws ArgumentError Var(:test, 1, u0='a')
+    u = Var(:a, 1, T=Float64)
+    @test !isempty(string(u))  # test show doesn't throw
+    prob = ContinuationProblem()
+    func = add!(prob, zeroproblem((res, u) -> res[1] = u[1]^2 + u[2]^2 - 1, [1, 0], name=:circle, fdim=1))
+    @test !isempty(string(prob))
+    @test nameof(func[:circle_u1]) === :circle_u1
+    @test getvars(prob) == [:allvars, :circle_u1]
+    @test getvar(prob, func[:circle_u1]) === func[:circle_u1]
+    @test getfuncs(prob) == [:circle]
+    @test getfunc(prob, :circle) === func
+    @test getfunc(prob, func) === func
+    @test hasfunc(prob, func)
+    @test hasfunc(prob, :circle)
+    @test !hasfunc(prob, :notcircle)
+    @test hasvar(prob, func[:circle_u1])
+    @test hasvar(prob, :circle_u1)
+    @test !hasvar(prob, :random)
+end
