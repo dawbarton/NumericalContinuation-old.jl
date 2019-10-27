@@ -9,7 +9,10 @@ module ProblemStructures
 # Continuation functions might maintain their own data structure, but anything
 # that might change from chart to chart should be stored in the chart data. (It
 # might be that the same data is shared across multiple charts - this requires a
-# custom copydata function to avoid making unnecessary copies.)
+# custom copyfuncdata function to avoid making unnecessary copies.)
+
+# Add setu0! (and setfuncdata!) to enable delayed updates of u0 and the funcdata?
+
 
 #--- Continuation variables
 
@@ -118,11 +121,12 @@ struct Functions
     indices::Vector{UnitRange{Int64}}
     funcs::Vector{Any}
     deps::Vector{Any}
+    funcdata::Vector{Any}
     lookup::Dict{String, Int64}
     vars::Vars
 end
 
-Functions(vars::Vars) = Functions(String[], Int64[], UnitRange{Int64}[], Any[], Any[], Dict{String, Int64}(), vars)
+Functions(vars::Vars) = Functions(String[], Int64[], UnitRange{Int64}[], Any[], Any[], Any[], Dict{String, Int64}(), vars)
 
 # Functions operating on individual continuation functions
 
@@ -131,10 +135,11 @@ getdim(funcs::Functions, fidx::Int64) = funcs.dims[fidx]
 getindices(funcs::Functions, fidx::Int64) = funcs.indices[fidx]
 getfunc(funcs::Functions, fidx::Int64) = funcs.funcs[fidx]
 getdeps(funcs::Functions, fidx::Int64) = funcs.deps[fidx]
+getfuncdata(funcs::Functions, fidx::Int64) = funcs.funcdata[fidx]
 Base.getindex(funcs::Functions, name::String) = funcs.lookup[name]
 hasfunc(funcs::Functions, name::String) = haskey(funcs.lookup, name)
 
-function addfunc!(funcs::Functions, name::String, func, deps::NTuple{N, Int64}, dim::Integer) where N
+function addfunc!(funcs::Functions, name::String, func, deps::NTuple{N, Int64}, dim::Integer; data=nothing) where N
     if haskey(funcs.lookup, name)
         throw(ArgumentError("Continuation function already exists: $name"))
     end
@@ -143,6 +148,7 @@ function addfunc!(funcs::Functions, name::String, func, deps::NTuple{N, Int64}, 
     push!(funcs.indices, 0:0)
     push!(funcs.funcs, func)
     push!(funcs.deps, deps)
+    push!(funcs.funcdata, data)
     fidx = length(funcs.names)
     funcs.lookup[name] = fidx
     setdim!(funcs, fidx, dim)
@@ -162,6 +168,8 @@ function setdim!(funcs::Functions, fidx::Int64, dim::Int64)
     end
     return funcs
 end
+
+setfuncdata!(funcs::Functions, fidx::Int64, data) = funcs.funcdata[fidx] = data
 
 # Functions operating on the collection of functions
 
@@ -185,23 +193,13 @@ function evaluate!(res, funcs::Functions, u, prob=nothing, data=nothing)
     return res
 end
 
-function getinitialdata(funcs::Functions, u, prob=nothing)
-    uv = [view(u, idx) for idx in funcs.vars.indices]
-    data = Any[]
-    for i in eachindex(funcs.funcs)
-        args = Any[]
-        if passproblem(typeof(funcs.funcs[i]))
-            push!(args, prob)
-        end
-        for dep in funcs.deps[i]
-            push!(args, uv[dep])
-        end
-        push!(data, getinitialdata(funcs.funcs[i], args...))
-    end
-    return (data...,)
+getinitialfuncdata(funcs::Functions) = funcs.funcdata
+
+function copyfuncdata(funcs::Functions, data::Tuple)
+    return ((copyfuncdata(funcs.funcs[i], data[i]) for i in eachindex(data))...,)
 end
 
-getinitialdata(func, u...) = nothing
+copyfuncdata(func, data) = deepcopy(data)
 
 #--- Specialisations for speed of evaluation of continuation functions
 
@@ -242,5 +240,8 @@ end
 @generated function evaluate!(res, funcs::SpecialisedFunctions{N, D, F}, u, prob=nothing, data=nothing) where {N, D, F}
     _evaluate_specialised(N, D, F)
 end
+
+getinitialdata(funcs::SpecialisedFunctions) = (funcs.wrapped.funcdata...,)
+copyfuncdata(funcs::SpecialisedFunctions, data::Tuple) = copyfuncdata(funcs.wrapped, data)  # TODO: write as a generated function?
 
 end # module
