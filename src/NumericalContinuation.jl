@@ -1,3 +1,7 @@
+# Just a thought...
+# """
+# $(read(joinpath(@__DIR__, "..", "README.md"), String))
+# """
 module NumericalContinuation
 
 include("forwarddefinitions.jl")
