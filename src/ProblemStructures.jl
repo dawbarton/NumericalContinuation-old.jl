@@ -49,7 +49,7 @@ function addvar!(vars::Vars, name::String, dim::Integer; u0=nothing, t0=nothing)
     vidx = length(vars.names)
     vars.lookup[name] = vidx
     setdim!(vars, vidx, dim)
-    return vars
+    return vidx
 end
 
 function setdim!(vars::Vars, vidx::Int64, dim::Integer)
@@ -139,7 +139,7 @@ getfuncdata(funcs::Functions, fidx::Int64) = funcs.funcdata[fidx]
 Base.getindex(funcs::Functions, name::String) = funcs.lookup[name]
 hasfunc(funcs::Functions, name::String) = haskey(funcs.lookup, name)
 
-function addfunc!(funcs::Functions, name::String, func, deps::NTuple{N, Int64}, dim::Integer; data=nothing) where N
+function addfunc!(funcs::Functions, name::String, func, deps::NTuple{N, Int64} where N, dim::Integer; data=nothing)
     if haskey(funcs.lookup, name)
         throw(ArgumentError("Continuation function already exists: $name"))
     end
@@ -243,5 +243,91 @@ end
 
 getinitialdata(funcs::SpecialisedFunctions) = (funcs.wrapped.funcdata...,)
 copyfuncdata(funcs::SpecialisedFunctions, data::Tuple) = copyfuncdata(funcs.wrapped, data)  # TODO: write as a generated function?
+
+#--- Problem structure (embedded and non-embedded functions)
+
+struct ProblemStructure
+    vars::Vars
+    embedded::Functions
+    embeddedkind::Vector{Symbol}
+    nonembedded::Functions
+    nonembeddedkind::Vector{Symbol}
+    specialised::Any
+end
+
+getvars(prob::ProblemStructure) = prob.vars
+addvar!(prob::ProblemStructure, args...; kwargs...) = addvar!(prob.vars, args...; kwargs...)
+
+function Base.getindex(prob::ProblemStructure, name::String)
+    if hasfunc(prob.embedded, name)
+        return prob.embedded[name]
+    elseif hasfunc(prob.nonembedded, name)
+        return -prob.nonembedded[name]
+    else
+        throw(KeyError("Function \"$name\" not found"))
+    end
+end
+
+getfunc(prob::ProblemStructure, fidx::Int64) = fidx > 0 ? getfunc(prob.embedded, fidx) : getfunc(prob.nonembedded, fidx)
+hasfunc(prob::ProblemStructure, name::String) = hasfunc(prob.embedded, name) || hasfunc(prob.nonembedded, name)
+
+function addfunc!(prob::ProblemStructure, name::String, args...; kind::Symbol=:embedded, kwargs...)
+    if !hasfunc(prob, name)
+        if kind === :embedded
+            addfunc!(prob.embedded, name, args...; kwargs...)
+            push!(prob.embeddedkind, kind)
+        else
+            addfunc!(prob.nonembedded, name, args...; kwargs...)
+            push!(prob.nonembeddedkind, kind)
+        end
+    else
+        throw(ArgumentError("Function \"$name\" already exists"))
+    end
+end
+
+#--- Monitor functions
+
+struct MonitorFunction{F}
+    func::F
+    vidx::Int64
+end
+
+passproblem(::Type{MonitorFunction}) = true
+passdata(::Type{MonitorFunction}) = true
+
+function (mfunc::MonitorFunction)(res, prob, data, um, u...)
+    mu = isempty(um) ? data[1][] : um[1]
+    if passproblem(typeof(mfunc.func))
+        if passdata(typeof(mfunc.func))
+            res[1] = mfunc.func(prob, data, u...) - mu
+        else
+            res[1] = mfunc.func(prob, u...) - mu
+        end
+    else
+        if passdata(typeof(mfunc.func))
+            res[1] = mfunc.func(data, u...) - mu
+        else
+            res[1] = mfunc.func(u...) - mu
+        end
+    end
+    return res
+end
+
+setactive!(prob::ProblemStructure, mfunc::MonitorFunction, active::Bool) = setdim!(getvars(prob), mfunc.vidx, active ? 1 : 0)
+setactive!(prob::ProblemStructure, fidx::Int64, active::Bool) = setactive!(prob, getfunc(prob, fidx), active)
+
+function addmonitorfunc!(prob::ProblemStructure, name::String, func, deps::NTuple{N, Int64} where N; data=nothing, active=true, val=nothing)
+    vars = getvars(prob)
+    _val = val === nothing ? func((getu0(vars, dep) for dep in deps)...) : val
+    vidx = addvar!(vars, name, active ? 1 : 0, u0=_val)
+    mfunc = MonitorFunction(func, vidx)
+    addembeddedfunc!(prob, name, mfunc, (vidx, deps...), 1, data=(Ref(_val), data))
+end
+
+_identity(u) = u[1]
+
+function addpar!(prob::ProblemStructure, name::String, vidx::Int64; active=true)
+    addmonitorfunc!(prob, name, _identity, (vidx,), active=active)
+end
 
 end # module
